@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">e码通</string>
+    <string name="settings_title">设置</string>
+    <string name="settings_account_section">账号</string>
+    <string name="settings_switch_account">切换账号</string>
+    <string name="settings_qr_section">二维码</string>
+    <string name="settings_brightness">显示亮度</string>
+    <string name="settings_brightness_desc">二维码显示时的屏幕亮度 (%1$d%%)</string>
+    <string name="settings_navigation_section">导航</string>
+    <string name="settings_back_mode">返回退出方式</string>
+    <string name="settings_back_single">按一次返回键退出</string>
+    <string name="settings_back_double">按两次返回键退出</string>
+    <string name="settings_about_section">关于</string>
+    <string name="settings_version">版本 %1$s</string>
+    <string name="qr_hidden_placeholder">点击显示二维码</string>
+    <string name="back_press_again">再按一次退出</string>
+    <string name="settings_credit">作者：acdc \nqq:2743984989</string>
+</resources>

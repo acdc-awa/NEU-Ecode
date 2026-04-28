@@ -103,8 +103,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startQRRefresh() {
+        refreshJob?.cancel()
         refreshJob = lifecycleScope.launch {
             while (isActive) {
+                if (!qrVisible) {
+                    delay(1_000L)
+                    continue
+                }
                 tvStatus.text = "正在获取二维码..."
                 val result = withContext(Dispatchers.IO) {
                     apiClient.fetchQRCode()
@@ -129,7 +134,7 @@ class MainActivity : AppCompatActivity() {
                     generateQRBitmap(result, 560)
                 }
                 qrBitmap = bitmap
-                if (qrVisible) ivQRCode.setImageBitmap(bitmap)
+                ivQRCode.setImageBitmap(bitmap)
                 delay(10_000L)
             }
         }
@@ -153,6 +158,7 @@ class MainActivity : AppCompatActivity() {
             layoutQRPlaceholder.visibility = View.GONE
             qrBitmap?.let { ivQRCode.setImageBitmap(it) }
             applyBrightness(true)
+            startQRRefresh()
         } else {
             ivQRCode.visibility = View.GONE
             layoutQRPlaceholder.visibility = View.VISIBLE
@@ -182,8 +188,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onBackPressed() {
         when (settings.backPressMode) {
-            "single" -> finish()
-            else -> {
+            BackPressMode.SINGLE -> finish()
+            BackPressMode.DOUBLE -> {
                 val now = System.currentTimeMillis()
                 if (now - lastBackPressTime < 2000) {
                     finish()

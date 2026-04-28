@@ -4,9 +4,6 @@
     <string name="settings_title">设置</string>
     <string name="settings_account_section">账号</string>
     <string name="settings_switch_account">切换账号</string>
-    <string name="settings_qr_section">二维码</string>
-    <string name="settings_brightness">显示亮度</string>
-    <string name="settings_brightness_desc">二维码显示时的屏幕亮度 (%1$d%%)</string>
     <string name="settings_navigation_section">导航</string>
     <string name="settings_back_mode">返回退出方式</string>
     <string name="settings_back_single">按一次返回键退出</string>

@@ -62,13 +62,14 @@ class LoginActivity : AppCompatActivity() {
                         .cookieJar(PersistentCookieJar(this@LoginActivity))
                         .build()
                     val casAuth = CasAuthenticator(okHttpClient, credentialManager)
-                    credentialManager.save(username, password)
                     val result = casAuth.login(username, password)
                     Log.d(TAG, "CAS认证结果: $result")
                     result
                 }
 
                 if (success) {
+                    Log.d(TAG, "登录成功，保存凭据")
+                    credentialManager.save(username, password)
                     Log.d(TAG, "登录成功，跳转MainActivity")
                     startActivity(Intent(this@LoginActivity, MainActivity::class.java))
                     finish()

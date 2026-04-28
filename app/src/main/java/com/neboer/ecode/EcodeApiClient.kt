@@ -21,7 +21,8 @@ class EcodeApiClient(
     }
 
     fun fetchQRCode(): String? {
-        Log.d(TAG, "fetchQRCode开始: XSRF-TOKEN=${credentialManager.getXSRFToken()?.take(20) ?: "null"}")
+        val hasToken = credentialManager.getXSRFToken() != null
+        Log.d(TAG, "fetchQRCode开始: hasToken=$hasToken")
         tryFetch()?.let {
             Log.d(TAG, "fetchQRCode: 首次请求成功")
             return it
@@ -37,8 +38,7 @@ class EcodeApiClient(
             return null
         }
 
-        Log.d(TAG, "fetchQRCode: 清除旧cookies后调用casAuthenticator.login(user=$username)")
-        // 清除所有旧 cookie（CASTGC、XSRF-TOKEN 等），否则 CAS 会因已有会话而跳过登录表单
+        Log.d(TAG, "fetchQRCode: 清除旧cookies后重新认证")
         (client.cookieJar as? PersistentCookieJar)?.clear()
         if (!casAuthenticator.login(username, password)) {
             Log.e(TAG, "fetchQRCode: 重新认证失败，清空凭据")
@@ -52,7 +52,7 @@ class EcodeApiClient(
 
     private fun tryFetch(): String? {
         val xsrfToken = credentialManager.getXSRFToken()
-        Log.d(TAG, "tryFetch: XSRF-TOKEN=${xsrfToken?.take(20)}")
+        Log.d(TAG, "tryFetch: hasToken=${xsrfToken != null}")
 
         val request = Request.Builder()
             .url("https://ecode.neu.edu.cn/ecode/api/qr-code")
@@ -69,11 +69,8 @@ class EcodeApiClient(
 
         if (!response.isSuccessful) {
             Log.w(TAG, "tryFetch失败: HTTP ${response.code}")
-            val errBody = response.body?.string()
-            Log.d(TAG, "tryFetch: 响应体前500字: ${errBody?.take(500)}")
 
             response.headers("Set-Cookie").forEach { cookie ->
-                Log.d(TAG, "tryFetch: Set-Cookie: ${cookie.take(150)}")
                 if (cookie.trim().startsWith("XSRF-TOKEN=", ignoreCase = true)) {
                     val token = cookie.trim()
                         .removePrefix("XSRF-TOKEN=")
@@ -81,7 +78,6 @@ class EcodeApiClient(
                         .split(";")
                         .first()
                     credentialManager.saveXSRFToken(token)
-                    Log.d(TAG, "tryFetch: 保存新XSRF-TOKEN: ${token.take(20)}...")
                 }
             }
             return null
@@ -99,10 +95,10 @@ class EcodeApiClient(
                 .getJSONObject(0)
                 .getJSONObject("attributes")
                 .getString("qrCode")
-            Log.i(TAG, "二维码: ${qrCode.take(30)}...")
+            Log.i(TAG, "二维码获取成功")
             return qrCode
         } catch (e: Exception) {
-            Log.e(TAG, "JSON解析失败: body=${body.take(200)}", e)
+            Log.e(TAG, "JSON解析失败", e)
             return null
         }
     }

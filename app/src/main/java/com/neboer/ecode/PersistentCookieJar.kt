@@ -22,9 +22,8 @@ class PersistentCookieJar(context: Context) : CookieJar {
     private val cache = mutableListOf<Cookie>()
 
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-        Log.d(TAG, "save: url=$url, new=${cookies.size}, total=${cache.size}")
+        Log.d(TAG, "save: count=${cookies.size}")
         cookies.forEach { c ->
-            Log.d(TAG, "  + ${c.name} domain=${c.domain} path=${c.path}")
             cache.removeAll { it.name == c.name && it.domain == c.domain }
         }
         // 统一 path 为 "/"，避免 cookie 因 path 限制无法在子路径间共享
@@ -63,10 +62,6 @@ class PersistentCookieJar(context: Context) : CookieJar {
         }
         val matched = cache.filter { it.matches(url) }
         Log.d(TAG, "load: matched=${matched.size}/${cache.size} for ${url.encodedPath}")
-        cache.forEach { c ->
-            val m = c.matches(url)
-            Log.d(TAG, "  ${if (m) "✓" else "✗"} ${c.name} domain=${c.domain} path=${c.path}")
-        }
         return matched
     }
 

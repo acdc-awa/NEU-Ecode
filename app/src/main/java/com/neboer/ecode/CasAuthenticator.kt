@@ -58,7 +58,7 @@ class CasAuthenticator(
     }
 
     fun login(username: String, password: String): Boolean {
-        Log.d(TAG, "=== CAS登录开始: user=$username ===")
+        Log.d(TAG, "=== CAS登录开始 ===")
 
         Log.d(TAG, "Step1: 获取登录页...")
         val pageParams = fetchLoginPage()
@@ -67,7 +67,7 @@ class CasAuthenticator(
             return false
         }
         val (action, lt, execution) = pageParams
-        Log.d(TAG, "Step1 OK: lt=${lt.take(20)}..., execution=$execution, action=$action")
+        Log.d(TAG, "Step1 OK: lt存在, execution=$execution")
 
         Log.d(TAG, "Step2: 提交账密...")
         val result = submitCredentials(action, lt, execution, username, password)
@@ -80,7 +80,7 @@ class CasAuthenticator(
                 Log.d(TAG, "Step2 OK: TPass引导流程完成，会话已建立")
             }
             else -> {
-                Log.d(TAG, "Step2 OK: ticket=${result.take(30)}...")
+                Log.d(TAG, "Step2 OK: 获得ticket")
                 Log.d(TAG, "Step3: 兑换ticket...")
                 if (!redeemTicket(result)) {
                     Log.w(TAG, "Step3 失败: ticket兑换后未找到XSRF-TOKEN")
@@ -132,7 +132,6 @@ class CasAuthenticator(
         username: String, password: String
     ): String? {
         val rsaValue = rsaEncrypt(username + password)
-        Log.d(TAG, "  rsa密文前32位: ${rsaValue.take(32)}")
 
         val formBody = FormBody.Builder()
             .add("rsa", rsaValue)
@@ -164,12 +163,10 @@ class CasAuthenticator(
 
         if (response.code in 300..399) {
             val location = response.header("Location")
-            Log.d(TAG, "  Location: $location")
             if (location != null) {
                 val uri = android.net.Uri.parse(location)
                 val ticket = uri.getQueryParameter("ticket")
                 if (ticket != null) {
-                    // 如果重定向目标是 pass.neu.edu.cn，说明是 TPass 引导票，需完成引导流程
                     val isPassHost = uri.host?.contains("pass.neu.edu.cn") == true
                     if (isPassHost) {
                         Log.d(TAG, "  TPass引导票，进入引导流程...")
@@ -178,7 +175,6 @@ class CasAuthenticator(
                     return ticket
                 }
 
-                // 部分账号被引导到 TPass 引导页，需跟随重定向链找到 ticket
                 Log.d(TAG, "  ticket不在query中，尝试跟随重定向链...")
                 val nextUrl = if (location.startsWith("http")) location
                 else "https://pass.neu.edu.cn$location"
@@ -219,22 +215,17 @@ class CasAuthenticator(
                 .build()
 
             val response = noRedirectClient.newCall(request).execute()
-            Log.d(TAG, "    → ${response.code}")
 
             if (response.code in 300..399) {
                 val location = response.header("Location") ?: return null
-                Log.d(TAG, "    Location: ${location.take(150)}")
                 val uri = android.net.Uri.parse(location)
                 val ticket = uri.getQueryParameter("ticket")
                 if (ticket != null) {
-                    Log.d(TAG, "    找到ticket: ${ticket.take(30)}...")
-                    // TPass引导票 → 完成引导流程
                     val isPassHost = uri.host?.contains("pass.neu.edu.cn") == true
                     if (isPassHost) {
                         Log.d(TAG, "    TPass引导票，跟随完成引导流程...")
                         return if (completeGuideFlow(location)) GUIDE_OK else null
                     }
-                    // 标准CAS票 → 直接返回
                     return ticket
                 }
                 currentUrl = if (location.startsWith("http")) location
@@ -279,22 +270,17 @@ class CasAuthenticator(
                     // 如果重定向到了 ecode（检查 host 而非 url 字符串），跟随全部重定向链
                     val isEcode = locUri.host?.contains("ecode.neu.edu.cn") == true
                     if (isEcode) {
-                        Log.d(TAG, "    重定向到ecode，token已由CookieJar保存，检查凭据...")
-                        // 302 响应已通过 CookieJar 保存了 XSRF-TOKEN，
-                        // 但 credentialManager 也需要保存一份。从 CookieJar 无法直接读取，
-                        // 所以我们用 noRedirectClient 发一个请求到 ecode 来捕获 Set-Cookie
+                        Log.d(TAG, "    重定向到ecode，捕获XSRF-TOKEN...")
                         val captureReq = Request.Builder()
                             .url(location)
                             .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
                             .get()
                             .build()
                         val captureResp = noRedirectClient.newCall(captureReq).execute()
-                        Log.d(TAG, "    捕获响应: ${captureResp.code}")
                         captureResp.headers("Set-Cookie").forEach { c ->
                             if (c.trim().startsWith("XSRF-TOKEN=", ignoreCase = true)) {
                                 val token = c.trim().removePrefix("XSRF-TOKEN=").removePrefix("xsrf-token=").split(";").first()
                                 credentialManager.saveXSRFToken(token)
-                                Log.d(TAG, "    XSRF-TOKEN: ${token.take(20)}...")
                             }
                         }
                         return credentialManager.getXSRFToken() != null
@@ -400,7 +386,7 @@ class CasAuthenticator(
                             val tgtMatch = Regex("tgt\\s*=\\s*\"(TGT-[^\"]+)\"").find(html)
                             if (tgtMatch != null) {
                                 val tgt = tgtMatch.groupValues[1]
-                                Log.d(TAG, "    尝试TGT换票: ${tgt.take(40)}...")
+                                Log.d(TAG, "    尝试TGT换票")
                                 val st = exchangeTgtForSt(tgt)
                                 if (st != null) {
                                     Log.d(TAG, "    TGT换票成功, 兑换ticket...")
@@ -529,13 +515,13 @@ class CasAuthenticator(
     private fun exchangeTgtForSt(tgt: String): String? {
         val serviceUrl = "https://ecode.neu.edu.cn/ecode/api/sso/login"
         val apiPaths = listOf(
-            "https://pass.neu.edu.cn/tpass/v1/tickets",       // 标准 CAS REST
-            "https://pass.neu.edu.cn/tp_tpass/v1/tickets",    // TPass CAS REST
+            "https://pass.neu.edu.cn/tpass/v1/tickets",
+            "https://pass.neu.edu.cn/tp_tpass/v1/tickets",
         )
         for (basePath in apiPaths) {
             try {
                 val url = "$basePath/$tgt"
-                Log.d(TAG, "    CAS REST: POST $url")
+                Log.d(TAG, "    CAS REST: POST ticket endpoint")
                 val body = FormBody.Builder()
                     .add("service", serviceUrl)
                     .build()
@@ -554,15 +540,14 @@ class CasAuthenticator(
                 if (resp.code == 201) {
                     val st = resp.body?.string()?.trim()
                     if (st != null && st.startsWith("ST-")) {
-                        Log.d(TAG, "    获得ST: ${st.take(40)}...")
+                        Log.d(TAG, "    获得ST")
                         return st
                     }
                 }
-                // 也尝试 200 响应（某些CAS实现返回200而非201）
                 if (resp.code == 200) {
                     val st = resp.body?.string()?.trim()
                     if (st != null && st.startsWith("ST-")) {
-                        Log.d(TAG, "    获得ST(200): ${st.take(40)}...")
+                        Log.d(TAG, "    获得ST(200)")
                         return st
                     }
                 }
@@ -575,9 +560,8 @@ class CasAuthenticator(
 
     private fun redeemTicket(ticket: String): Boolean {
         val url = "https://ecode.neu.edu.cn/ecode/api/sso/login?ticket=$ticket"
-        Log.d(TAG, "  GET $url")
+        Log.d(TAG, "  redeemTicket")
 
-        // Step 1: 用 noRedirectClient 捕获 302 响应里的 XSRF-TOKEN
         val noRedirectClient = client.newBuilder()
             .followRedirects(false)
             .followSslRedirects(false)
@@ -596,7 +580,6 @@ class CasAuthenticator(
 
         var found = false
         response.headers("Set-Cookie").forEach { cookieStr ->
-            Log.d(TAG, "  Set-Cookie: ${cookieStr.take(120)}")
             if (cookieStr.trim().startsWith("XSRF-TOKEN=", ignoreCase = true)) {
                 val token = cookieStr.trim()
                     .removePrefix("XSRF-TOKEN=")
@@ -604,24 +587,20 @@ class CasAuthenticator(
                     .split(";")
                     .first()
                 credentialManager.saveXSRFToken(token)
-                Log.d(TAG, "  XSRF-TOKEN已保存: ${token.take(20)}...")
                 found = true
             }
         }
 
-        // Step 2: 跟随重定向完成服务端会话建立（CookieJar 已有 cookie，会随请求发送）
         if (response.code in 300..399) {
             val location = response.header("Location")
             if (location != null) {
                 val followUrl = if (location.startsWith("http")) location
                 else "https://ecode.neu.edu.cn$location"
-                Log.d(TAG, "  跟随重定向完成会话: $followUrl")
-                val followResp = casClient.newCall(
+                casClient.newCall(
                     Request.Builder().url(followUrl)
                         .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
                         .get().build()
                 ).execute()
-                Log.d(TAG, "  最终响应: ${followResp.code}, url=${followResp.request.url}")
             }
         }
 

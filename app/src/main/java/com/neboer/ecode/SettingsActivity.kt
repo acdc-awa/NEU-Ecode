@@ -21,13 +21,13 @@ class SettingsActivity : AppCompatActivity() {
 
         val radioSingle: MaterialRadioButton = findViewById(R.id.radioSingle)
         val radioDouble: MaterialRadioButton = findViewById(R.id.radioDouble)
-        if (settings.backPressMode == "single") radioSingle.isChecked = true
-        else radioDouble.isChecked = true
+        radioSingle.isChecked = settings.backPressMode == BackPressMode.SINGLE
+        radioDouble.isChecked = settings.backPressMode == BackPressMode.DOUBLE
 
         findViewById<RadioGroup>(R.id.radioGroupBackMode).setOnCheckedChangeListener { _, id ->
             settings.backPressMode = when (id) {
-                R.id.radioSingle -> "single"
-                else -> "double"
+                R.id.radioSingle -> BackPressMode.SINGLE
+                else -> BackPressMode.DOUBLE
             }
         }
 

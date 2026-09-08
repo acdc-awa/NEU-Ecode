@@ -44,7 +44,9 @@ jobs:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --stacktrace
+        run: |
+          chmod +x gradlew # 防止 Windows 提交丢执行位
+          ./gradlew assembleRelease --stacktrace
 
       - name: 用版本号重命名 APK
         run: |

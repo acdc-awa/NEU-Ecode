@@ -81,11 +81,16 @@ class ApkUpdateDownloader(private val context: Context) {
     private var cancelled = false
 
     /** 阻塞下载,直到完成、失败或被 cancel()。在 IO 线程调用。 */
-    fun download(release: ReleaseInfo, listener: Listener) {
+    fun download(release: ReleaseInfo, sourceId: String?, listener: Listener) {
         cancelled = false
         val partFile = partialFile(context, release.versionName)
-        // URL 拼接代理前缀即可加速,直连("")永远兜底
-        val sources = UpdateChecker.PROXY_PREFIXES + ""
+        val selected = UpdateChecker.sourceById(sourceId)
+        // 手动源:该源优先,失败按固定顺序换其余源(直连兜底);自动源:并行测速取最快
+        val sources = if (selected.prefix == null) {
+            measureSourceOrder(release)
+        } else {
+            (listOf(selected.prefix) + UpdateChecker.PROXY_PREFIXES + "").distinct()
+        }
         var lastError: String = "未知错误"
 
         for (source in sources) {
@@ -108,6 +113,51 @@ class ApkUpdateDownloader(private val context: Context) {
     fun cancel() {
         cancelled = true
         activeCall?.cancel()
+    }
+
+    /**
+     * 自动选源:对每个源并发发一个 Range 0-1023 的真实资产请求,
+     * 按响应耗时排序(失败排最后),返回源前缀顺序。直连("")也参与测速。
+     */
+    private fun measureSourceOrder(release: ReleaseInfo): List<String> {
+        val candidates = UpdateChecker.PROXY_PREFIXES + ""
+        val latencies = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        val latch = java.util.concurrent.CountDownLatch(candidates.size)
+        for (prefix in candidates) {
+            val request = Request.Builder()
+                .url(prefix + release.apkUrl)
+                .header("Range", "bytes=0-1023")
+                .header("Accept-Encoding", "identity")
+                .build()
+            val startAt = System.nanoTime()
+            // 单独的短超时客户端:测速卡住的源最多等 5 秒,不拖慢整体
+            client.newBuilder()
+                .callTimeout(5, TimeUnit.SECONDS)
+                .build()
+                .newCall(request)
+                .enqueue(object : okhttp3.Callback {
+                    override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                        response.close()
+                        latencies[prefix] = System.nanoTime() - startAt
+                        latch.countDown()
+                    }
+
+                    override fun onFailure(call: okhttp3.Call, e: IOException) {
+                        latencies[prefix] = Long.MAX_VALUE
+                        latch.countDown()
+                    }
+                })
+        }
+        latch.await(8, TimeUnit.SECONDS)
+        val order = candidates.sortedBy { latencies[it] ?: Long.MAX_VALUE }
+        Log.i(
+            TAG, "源测速结果: " + order.joinToString { p ->
+                val ms = latencies[p]?.div(1_000_000) ?: -1
+                val label = if (p.isEmpty()) "直连" else p.removePrefix("https://").removeSuffix("/")
+                "$label=${ms}ms"
+            }
+        )
+        return order
     }
 
     /** 单源下载,返回 true 表示完成;抛异常表示该源失败(换源续传) */

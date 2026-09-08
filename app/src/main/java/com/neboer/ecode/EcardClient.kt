@@ -11,13 +11,16 @@ import java.util.concurrent.TimeUnit
 /**
  * 一卡通(ecard.neu.edu.cn)自助查询客户端,获取校园卡主钱包余额。
  *
- * 真实登录流程(见 .har/ecardlogin.har,缺一步会话就建立不起来):
+ * 真实登录流程(见 .har/ecardlogin.har,缺任何一步会话都建立不起来):
  * 1. GET selflogin/login.aspx → 302 → CAS tpass/login?service=selflogin
  * 2. CAS 有 TGC 时直接 302 回 selflogin?ticket=ST-xxx;TGC 失效则返回登录表单
  * 3. selflogin?ticket 返回 200 表单页,内含服务端生成的隐藏字段(username/timestamp/auid),
  *    浏览器 JS 会自动 POST /selfsearch/SSOLogin.aspx → 302 Index.aspx,
- *    该 POST 的响应才下发真正的 .ASPXAUTSSM 会话 cookie
- * 因此建立会话 = 手动跟随重定向 + 在 ticket 落地页解析表单并代为提交。
+ *    该 POST 的响应下发 .ASPXAUTSSM 会话 cookie
+ * 4. 关键:第一次 SSOLogin POST 下发的只是"预会话"cookie,Index 会弹回
+ *    /selfsearch/login.aspx;必须带着预会话 cookie 再走一轮(新 ticket + 第二次
+ *    POST)才能换到正式会话(浏览器抓包中 POST 请求带着上一轮留下的
+ *    104 位预会话 .ASPXAUTSSM,响应才换成 128 位正式值)
  */
 class EcardClient(
     private val client: OkHttpClient,
@@ -47,6 +50,16 @@ class EcardClient(
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    private enum class WalkOutcome {
+        /** 已有正式会话 */
+        SESSION_OK,
+        /** SSOLogin 第一阶段完成(只拿到预会话cookie),需要带预会话再走一轮 */
+        SSO_PENDING,
+        /** 落在 CAS 登录表单,TGC 失效 */
+        CAS_LOGIN_FORM,
+        FAILED
+    }
+
     /** 返回主钱包余额(如 "10.89"),失败返回 null。不抛异常,不改变凭据/二维码流程的生命周期。 */
     fun fetchBalance(): String? {
         return try {
@@ -74,12 +87,23 @@ class EcardClient(
         return parseBalance(getBody(HOME_URL))
     }
 
-    /**
-     * 手动跟随 selflogin 的重定向链(最多 MAX_REDIRECTS 跳),并在 ticket 落地页
-     * 解析自动提交表单代浏览器 POST 给 SSOLogin.aspx 以换取 .ASPXAUTSSM 会话。
-     * 返回 true 表示会话已建立;落在 CAS 登录表单(pass.neu.edu.cn)说明 TGC 失效。
-     */
+    /** 走完整 selflogin 流程;SSO 预会话阶段会自动再走一轮(新一轮拿新ticket) */
     private fun establishViaSelflogin(): Boolean {
+        when (walkSelfloginOnce()) {
+            WalkOutcome.SESSION_OK -> return true
+            WalkOutcome.SSO_PENDING -> {
+                Log.i(TAG, "SSO第一阶段完成(下发预会话cookie),带预会话再走一轮")
+                return walkSelfloginOnce() == WalkOutcome.SESSION_OK
+            }
+            else -> return false
+        }
+    }
+
+    /**
+     * 手动跟随 selflogin 的重定向链(最多 MAX_REDIRECTS 跳),在 ticket 落地页解析
+     * 自动提交表单并代浏览器 POST 给 SSOLogin.aspx。
+     */
+    private fun walkSelfloginOnce(): WalkOutcome {
         var url = SELFLOGIN_URL
         for (i in 0 until MAX_REDIRECTS) {
             Log.d(TAG, "selfloginWalk[$i]: $url")
@@ -91,7 +115,7 @@ class EcardClient(
                 response.close()
                 if (next == null) {
                     Log.w(TAG, "重定向缺少Location,停止")
-                    return false
+                    return WalkOutcome.FAILED
                 }
                 url = next.toString()
                 continue
@@ -102,7 +126,7 @@ class EcardClient(
             if (landed.host != ECARD_HOST) {
                 response.close()
                 Log.d(TAG, "落地在 $landed (HTTP $code),未到ecard,判定CAS会话失效")
-                return false
+                return WalkOutcome.CAS_LOGIN_FORM
             }
 
             val html = response.body?.string()
@@ -110,16 +134,16 @@ class EcardClient(
             if (form == null) {
                 if (landed.queryParameter("ticket") != null) {
                     Log.w(TAG, "ticket落地页未找到SSOLogin表单, HTML前500字: ${html?.take(500)}")
-                    return false
+                    return WalkOutcome.FAILED
                 }
                 Log.d(TAG, "落地 $landed 无SSO表单,视为已有会话")
-                return true
+                return WalkOutcome.SESSION_OK
             }
             val (postUrl, fields) = form
             return submitSsoForm(landed, postUrl, fields)
         }
         Log.w(TAG, "selflogin重定向超过${MAX_REDIRECTS}跳仍未落地")
-        return false
+        return WalkOutcome.FAILED
     }
 
     /** 从落地页解析 SSOLogin 自动提交表单,返回 (提交地址, 隐藏字段列表);非SSO表单返回 null */
@@ -137,12 +161,15 @@ class EcardClient(
         return postUrl to fields
     }
 
-    /** 代浏览器提交 SSO 表单;followClient 会自动跟随 302 到 Index.aspx,会话 cookie 由 cookieJar 捕获 */
+    /**
+     * 代浏览器提交 SSO 表单。POST 单独发(便于观察下发的是预会话还是正式会话 cookie),
+     * 之后的重定向交给 followClient 走完。只记录 Set-Cookie 的名字和值长度,不记值。
+     */
     private fun submitSsoForm(
         pageUrl: HttpUrl,
         postUrl: HttpUrl,
         fields: List<Pair<String, String>>
-    ): Boolean {
+    ): WalkOutcome {
         Log.d(TAG, "提交SSO表单: $postUrl fields=${fields.joinToString { it.first }}")
         val formBody = FormBody.Builder().apply { fields.forEach { (k, v) -> add(k, v) } }.build()
         val request = Request.Builder()
@@ -151,12 +178,38 @@ class EcardClient(
             .header("Referer", pageUrl.toString())
             .post(formBody)
             .build()
-        val response = followClient.newCall(request).execute()
-        val code = response.code
-        val landed = response.request.url
-        response.close()
-        Log.d(TAG, "SSO表单提交 → HTTP $code, 落地: $landed")
-        return landed.host == ECARD_HOST
+        val postResponse = noRedirectClient.newCall(request).execute()
+        val code = postResponse.code
+        val setCookies = postResponse.headers("Set-Cookie")
+            .map { h -> h.substringBefore(';').trim() }
+            .map { h -> h.substringBefore('=') to h.substringAfter('=', "").length }
+        Log.d(TAG, "SSO表单POST → HTTP $code, Set-Cookie(name:值长度)=$setCookies, Location=${postResponse.header("Location")?.take(120)}")
+        postResponse.close()
+
+        if (code !in 300..399) {
+            Log.w(TAG, "SSO表单POST未按预期重定向(HTTP $code)")
+            return WalkOutcome.FAILED
+        }
+        val next = postResponse.header("Location")?.let { postResponse.request.url.resolve(it) }
+            ?: return WalkOutcome.FAILED
+        val resp = followClient.newCall(
+            Request.Builder().url(next).header("User-Agent", USER_AGENT).get().build()
+        ).execute()
+        val landed = resp.request.url
+        resp.close()
+        Log.d(TAG, "SSO提交后落地: $landed")
+        return classifyLanding(landed)
+    }
+
+    /** 正式会话 → Index.aspx;预会话 → 被弹回 /selfsearch/login.aspx(注意别和 /selflogin/login.aspx 混淆) */
+    private fun classifyLanding(landed: HttpUrl): WalkOutcome {
+        if (landed.host != ECARD_HOST) return WalkOutcome.FAILED
+        val path = landed.encodedPath.lowercase()
+        return if (path.endsWith("/login.aspx") && !path.startsWith("/selflogin")) {
+            WalkOutcome.SSO_PENDING
+        } else {
+            WalkOutcome.SESSION_OK
+        }
     }
 
     private fun getBody(url: String): String? {

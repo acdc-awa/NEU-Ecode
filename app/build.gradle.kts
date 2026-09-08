@@ -12,6 +12,7 @@ plugins {
 // versionCode 由版本号前两三段数字算出(major*10000 + minor*100 + patch),随版本单调递增
 val tagName: String = System.getenv("GITHUB_REF_NAME")
     ?.takeIf { System.getenv("GITHUB_REF_TYPE") == "tag" && Regex("""^v?\d""").containsMatchIn(it) }
+    ?.removePrefix("v")
     ?: runCatching {
         val proc = ProcessBuilder("git", "describe", "--tags", "--match", "v*")
             .directory(rootDir)

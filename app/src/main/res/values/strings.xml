@@ -14,5 +14,7 @@
     <string name="back_press_again">再按一次退出</string>
     <string name="balance_format">余额：%1$s 元</string>
     <string name="balance_unknown">余额：--</string>
+    <string name="refresh_balance">刷新余额</string>
+    <string name="balance_refresh_failed">余额刷新失败，请稍后重试</string>
     <string name="settings_credit">作者：acdc \nqq:2743984989</string>
 </resources>

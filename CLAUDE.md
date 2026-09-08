@@ -17,6 +17,12 @@ Gradle 8.5 wrapper, AGP 8.2.2, Kotlin 1.9.22, JDK 17 (compileSdk 34, minSdk 24).
 
 There are no tests to run. Verification is build + install on a device; the login flow can only be exercised with a real NEU student account.
 
+## Versioning + Releases
+
+- `versionName`/`versionCode` are derived from git tags in `app/build.gradle.kts` (top of file): tag pushes (`v1.2.3`) use `GITHUB_REF_NAME` directly, local builds use `git describe --tags --match v*`, falling back to `1.0.0` when no tag exists. `versionCode` = major\*10000 + minor\*100 + patch. The in-app version label (`SettingsActivity`) reads `PackageInfo.versionName`, so it follows automatically — never hardcode versions
+- `.github/workflows/build-apk.yml` builds a signed release APK on `v*` tag pushes (attaches it to a GitHub Release) and on manual `workflow_dispatch`. Signing reads env vars `SIGNING_STORE_FILE`/`SIGNING_STORE_PASSWORD`/`SIGNING_KEY_ALIAS`/`SIGNING_KEY_PASSWORD`, wired from GitHub Secrets (`KEYSTORE_BASE64` + the three passwords); without them the workflow still builds but the APK is unsigned/not installable. The keystore lives locally in `keystore/` (gitignored) with passwords in `keystore/signing-info.txt`
+- To release: commit, tag `vX.Y.Z`, push the tag — that's the whole loop
+
 ## Architecture
 
 Plain Activities with hand-rolled OkHttp networking — no DI, ViewModel, or Repository layers; classes are constructed inline with the Activity as context. All classes live flat in `app/src/main/java/com/neboer/ecode/`.

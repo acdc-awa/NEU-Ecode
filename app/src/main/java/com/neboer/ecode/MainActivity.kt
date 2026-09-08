@@ -1,5 +1,6 @@
 package com.neboer.ecode
 
+import android.animation.ObjectAnimator
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -7,6 +8,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
 import android.view.View
+import android.view.animation.LinearInterpolator
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
@@ -27,7 +29,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
-        private const val BALANCE_REFRESH_INTERVAL_MS = 60_000L
     }
 
     private lateinit var credentialManager: CredentialManager
@@ -40,17 +41,19 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvUsername: TextView
     private lateinit var tvStatus: TextView
     private lateinit var tvBalance: TextView
+    private lateinit var btnRefreshBalance: ImageButton
     private lateinit var ivQRCode: ImageView
     private lateinit var layoutQRPlaceholder: View
     private lateinit var cardQRCode: View
     private lateinit var btnSettings: ImageButton
 
     private var refreshJob: Job? = null
+    private var balanceJob: Job? = null
+    private var balanceSpin: ObjectAnimator? = null
     private var qrBitmap: Bitmap? = null
     private var qrVisible: Boolean = true
     private var originalBrightness: Float = -1f
     private var lastBackPressTime: Long = 0
-    private var lastBalanceFetchAt: Long = 0
 
     private val settingsLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -71,6 +74,7 @@ class MainActivity : AppCompatActivity() {
         tvUsername = findViewById(R.id.tvUsername)
         tvStatus = findViewById(R.id.tvStatus)
         tvBalance = findViewById(R.id.tvBalance)
+        btnRefreshBalance = findViewById(R.id.btnRefreshBalance)
         ivQRCode = findViewById(R.id.ivQRCode)
         layoutQRPlaceholder = findViewById(R.id.layoutQRPlaceholder)
         cardQRCode = findViewById(R.id.cardQRCode)
@@ -101,11 +105,14 @@ class MainActivity : AppCompatActivity() {
             applyQRVisibility()
         }
 
+        btnRefreshBalance.setOnClickListener { loadBalance() }
+
         btnSettings.setOnClickListener {
             settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
         }
 
         startQRRefresh()
+        loadBalance()
     }
 
     private fun startQRRefresh() {
@@ -141,24 +148,42 @@ class MainActivity : AppCompatActivity() {
                 }
                 qrBitmap = bitmap
                 ivQRCode.setImageBitmap(bitmap)
-                maybeRefreshBalance()
                 delay(10_000L)
             }
         }
     }
 
-    /** 每60秒随二维码轮询刷新一次余额;失败时保留上次显示,不影响二维码流程 */
-    private suspend fun maybeRefreshBalance() {
-        val now = System.currentTimeMillis()
-        if (now - lastBalanceFetchAt < BALANCE_REFRESH_INTERVAL_MS) return
-        lastBalanceFetchAt = now
-        val balance = withContext(Dispatchers.IO) {
-            ecardClient.fetchBalance()
+    /** 启动时和点按钮时拉一次余额;进行中重复点击忽略,失败 Toast 提示 */
+    private fun loadBalance() {
+        if (balanceJob?.isActive == true) return
+        balanceJob = lifecycleScope.launch {
+            setBalanceRefreshing(true)
+            val balance = withContext(Dispatchers.IO) {
+                ecardClient.fetchBalance()
+            }
+            setBalanceRefreshing(false)
+            if (balance != null) {
+                tvBalance.text = getString(R.string.balance_format, balance)
+            } else {
+                Log.w(TAG, "余额获取失败")
+                Toast.makeText(this@MainActivity, R.string.balance_refresh_failed, Toast.LENGTH_SHORT).show()
+            }
         }
-        if (balance != null) {
-            tvBalance.text = getString(R.string.balance_format, balance)
+    }
+
+    private fun setBalanceRefreshing(refreshing: Boolean) {
+        btnRefreshBalance.isEnabled = !refreshing
+        if (refreshing) {
+            balanceSpin = ObjectAnimator.ofFloat(btnRefreshBalance, View.ROTATION, 0f, 360f).apply {
+                duration = 1_000L
+                repeatCount = ObjectAnimator.INFINITE
+                interpolator = LinearInterpolator()
+                start()
+            }
         } else {
-            Log.w(TAG, "余额获取失败,保留上次显示")
+            balanceSpin?.cancel()
+            balanceSpin = null
+            btnRefreshBalance.rotation = 0f
         }
     }
 
@@ -237,5 +262,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         refreshJob?.cancel()
+        balanceJob?.cancel()
+        balanceSpin?.cancel()
     }
 }

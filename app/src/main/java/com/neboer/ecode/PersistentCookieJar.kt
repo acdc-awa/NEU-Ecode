@@ -21,6 +21,8 @@ class PersistentCookieJar(context: Context) : CookieJar {
 
     private val cache = mutableListOf<Cookie>()
 
+    // 余额刷新与二维码轮询是两条并发请求链,cache 会被多个 IO 线程同时读写,必须串行化
+    @Synchronized
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
         Log.d(TAG, "save: count=${cookies.size}")
         // 逐条按到达顺序处理:同名同域先删旧值再写入,即"后写覆盖先写"(与浏览器一致)。
@@ -51,6 +53,7 @@ class PersistentCookieJar(context: Context) : CookieJar {
         prefs.edit().putString(KEY_COOKIES, json.toString()).apply()
     }
 
+    @Synchronized
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
         if (cache.isEmpty()) {
             val raw = prefs.getString(KEY_COOKIES, null) ?: return emptyList()
@@ -70,6 +73,7 @@ class PersistentCookieJar(context: Context) : CookieJar {
         return matched
     }
 
+    @Synchronized
     fun clear() {
         Log.d(TAG, "clear: 清除所有cookies")
         cache.clear()

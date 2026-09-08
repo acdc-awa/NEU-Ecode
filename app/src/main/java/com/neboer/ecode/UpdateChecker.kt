@@ -44,7 +44,7 @@ class UpdateChecker {
     companion object {
         private const val TAG = "UpdateChecker"
         private const val REPO = "acdc-awa/NEU-Ecode"
-        private const val API_URL = "https://api.github.com/repos/$REPO/releases/latest"
+        const val API_URL = "https://api.github.com/repos/$REPO/releases/latest"
 
         val SOURCE_AUTO = UpdateSource("auto", "自动选择（测速）", null)
         val SOURCE_DIRECT = UpdateSource("direct", "GitHub 直连", "")
@@ -90,6 +90,49 @@ class UpdateChecker {
         /** (major, minor, patch) → 可比较的单值,与 versionCode 的推导规则一致 */
         private fun toVersionCode(v: Triple<Int, Int, Int>): Long =
             v.first * 1_000_000L + v.second * 1_000L + v.third
+
+        private val measureClient: OkHttpClient by lazy { OkHttpClient() }
+
+        /**
+         * 对每个前缀并发发一个 GET [targetUrl],按响应头耗时计延迟(纳秒)。
+         * 失败/超时记为 [Long.MAX_VALUE];latch 超时后未返回的源不在 Map 里,调用方按失败处理。
+         * 下载器自动选源(目标=真实资产 URL)和设置页测速(目标=API)共用此逻辑。
+         */
+        fun measureLatencies(
+            prefixes: List<String>,
+            targetUrl: String,
+            timeoutSec: Long = 5L,
+        ): Map<String, Long> {
+            val latencies = java.util.concurrent.ConcurrentHashMap<String, Long>()
+            val latch = java.util.concurrent.CountDownLatch(prefixes.size)
+            for (prefix in prefixes) {
+                val request = Request.Builder()
+                    .url(prefix + targetUrl)
+                    .header("User-Agent", "NEU-Ecode-App")
+                    // 避免 OkHttp 透明 gzip 干扰耗时
+                    .header("Accept-Encoding", "identity")
+                    .build()
+                val startAt = System.nanoTime()
+                measureClient.newBuilder()
+                    .callTimeout(timeoutSec, TimeUnit.SECONDS)
+                    .build()
+                    .newCall(request)
+                    .enqueue(object : okhttp3.Callback {
+                        override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                            response.close()
+                            latencies[prefix] = System.nanoTime() - startAt
+                            latch.countDown()
+                        }
+
+                        override fun onFailure(call: okhttp3.Call, e: IOException) {
+                            latencies[prefix] = Long.MAX_VALUE
+                            latch.countDown()
+                        }
+                    })
+            }
+            latch.await(timeoutSec + 3, TimeUnit.SECONDS)
+            return latencies
+        }
     }
 
     private val client = OkHttpClient.Builder()

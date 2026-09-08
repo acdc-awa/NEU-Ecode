@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 在线更新:把下载到应用外部私有目录 update/ 下的 APK 通过 FileProvider 提供给系统安装器 -->
+<paths>
+    <external-files-path
+        name="update_apk"
+        path="update/" />
+</paths>

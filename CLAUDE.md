@@ -31,7 +31,18 @@ Plain Activities with hand-rolled OkHttp networking — no DI, ViewModel, or Rep
 
 - `LoginActivity` (launcher) — if `CredentialManager.hasCredential()`, jumps straight to `MainActivity`; otherwise shows the CAS login form
 - `MainActivity` — QR display: a `lifecycleScope` coroutine loop polls `EcodeApiClient.fetchQRCode()` every 10 s, renders the returned string with ZXing `QRCodeWriter`, and forces screen brightness to 1.0 while the QR is visible. The same loop refreshes the card balance via `EcardClient` at most every 60 s (shown in `tvBalance`). Tapping the QR card toggles visibility. A null fetch result (re-auth failed) wipes credentials/cookies and relaunches `LoginActivity`
-- `SettingsActivity` — back-press mode (single/double) radio buttons; "switch account" clears cookies + credentials and relaunches `LoginActivity`
+- `SettingsActivity` — back-press mode (single/double) radio buttons; "switch account" clears cookies + credentials and relaunches `LoginActivity`; the 关于 section hosts the online-update state machine (see below)
+
+### Online update (v<xx.xx.xx> releases)
+
+User-initiated from SettingsActivity ("检查更新" button); a 9-state UI state machine (`UpdateUiState`) drives status text / progress bar / one action button (下载更新 / 暂停 / 继续下载 / 安装更新). Components (all flat in `com.neboer.ecode`):
+
+- `UpdateChecker` — GETs `https://api.github.com/repos/acdc-awa/NEU-Ecode/releases/latest` direct-first, then through each prefix in `UpdateChecker.PROXY_PREFIXES` (currently `gh.llkk.cc`, `ghfast.top`, `gh-proxy.com`; these mirror sites die over time — edit the list when one breaks, direct always stays as last resort for downloads). Picks the first `.apk` asset. Version comparison: `parseVersion` regex accepts `v1.2.3` / `1.2.3` / `1.2.3-3-gabc` (local git describe suffix is ignored), missing segments default to 0; `isNewer` compares via `toVersionCode` (major*1e6 + minor*1e3 + patch). Tags not matching the pattern → check fails loudly rather than falsely offering an update. GitHub API rate limit (60/hr per IP) makes the proxy fallbacks matter too
+- `ApkUpdateDownloader` — blocking `download()` for the caller's IO coroutine; iterates `PROXY_PREFIXES + direct`, sends `Range: bytes=<part length>-` every attempt so any failure (dead proxy mid-stream, user pause, process death) resumes from the `.part` file in `getExternalFilesDir(null)/update/`; HTTP 200 response (range ignored) restarts cleanly, 416 deletes the stale `.part`. Completion requires the byte count to reach the Content-Range total, then `.part` renames to `Ecode-<version>.apk`. Progress callbacks are throttled to ~150 ms and posted to the main thread. `cleanupExcept(version)` purges other versions' files after a check. Static helpers `partialFile`/`downloadedApk`/`updateDir` are shared with the Activity
+- `ApkInstaller` — FileProvider URI + `ACTION_VIEW` install intent; on API 26+ without "install unknown apps" permission it stores the path in `pendingApkPath` and opens `ACTION_MANAGE_UNKNOWN_APP_SOURCES`; `SettingsActivity.onResume` calls `resumePendingInstall` to continue after the grant
+- Manifest additions: `REQUEST_INSTALL_PACKAGES` permission + `androidx.core.content.FileProvider` with `res/xml/file_paths.xml` (external-files-path `update/`)
+- Download lives in the SettingsActivity `lifecycleScope` and is cancelled in `onDestroy` — leaving the page pauses (`.part` kept, resumable); `onDestroy` cancel also prevents a zombie download racing a new Activity's download on the same file
+- JVM-verified via the demo harness: `cd demo && ../gradlew runUpdate` runs version-compare assertions plus real release query/download/resume against GitHub (Android stubs: `Handler`/`Looper`/`getExternalFilesDir` added in `demo/src/main/kotlin/android/`)
 
 ### Auth + QR flow (the core)
 

@@ -23,17 +23,22 @@ class PersistentCookieJar(context: Context) : CookieJar {
 
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
         Log.d(TAG, "save: count=${cookies.size}")
+        // 逐条按到达顺序处理:同名同域先删旧值再写入,即"后写覆盖先写"(与浏览器一致)。
+        // SSOLogin.aspx 一次会下发两条同名 .ASPXAUTSSM(空值删除 + 新正式值),整批存入会让
+        // 下次请求带上被空值污染的重复会话 cookie,服务端判定未认证。
         cookies.forEach { c ->
             cache.removeAll { it.name == c.name && it.domain == c.domain }
+            if (c.expiresAt > System.currentTimeMillis()) {
+                // 统一 path 为 "/"，避免 cookie 因 path 限制无法在子路径间共享
+                cache.add(
+                    if (c.path == "/") c
+                    else Cookie.Builder().domain(c.domain).path("/").name(c.name).value(c.value)
+                        .also { if (c.secure) it.secure() }
+                        .also { if (c.httpOnly) it.httpOnly() }
+                        .build()
+                )
+            }
         }
-        // 统一 path 为 "/"，避免 cookie 因 path 限制无法在子路径间共享
-        cache.addAll(cookies.map { c ->
-            if (c.path == "/") c
-            else Cookie.Builder().domain(c.domain).path("/").name(c.name).value(c.value)
-                .also { if (c.secure) it.secure() }
-                .also { if (c.httpOnly) it.httpOnly() }
-                .build()
-        })
         val json = JSONArray()
         cache.forEach { c ->
             json.put(org.json.JSONObject().apply {
@@ -60,7 +65,7 @@ class PersistentCookieJar(context: Context) : CookieJar {
                     .build())
             }
         }
-        val matched = cache.filter { it.matches(url) }
+        val matched = cache.filter { it.matches(url) && it.expiresAt > System.currentTimeMillis() }
         Log.d(TAG, "load: matched=${matched.size}/${cache.size} for ${url.encodedPath}")
         return matched
     }

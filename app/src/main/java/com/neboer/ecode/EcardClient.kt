@@ -11,16 +11,15 @@ import java.util.concurrent.TimeUnit
 /**
  * 一卡通(ecard.neu.edu.cn)自助查询客户端,获取校园卡主钱包余额。
  *
- * 真实登录流程(见 .har/ecardlogin.har,缺任何一步会话都建立不起来):
+ * 真实登录流程(见 .har/ecardlogin.har,浏览器单轮即成功):
  * 1. GET selflogin/login.aspx → 302 → CAS tpass/login?service=selflogin
  * 2. CAS 有 TGC 时直接 302 回 selflogin?ticket=ST-xxx;TGC 失效则返回登录表单
  * 3. selflogin?ticket 返回 200 表单页,内含服务端生成的隐藏字段(username/timestamp/auid),
- *    浏览器 JS 会自动 POST /selfsearch/SSOLogin.aspx → 302 Index.aspx,
- *    该 POST 的响应下发 .ASPXAUTSSM 会话 cookie
- * 4. 关键:第一次 SSOLogin POST 下发的只是"预会话"cookie,Index 会弹回
- *    /selfsearch/login.aspx;必须带着预会话 cookie 再走一轮(新 ticket + 第二次
- *    POST)才能换到正式会话(浏览器抓包中 POST 请求带着上一轮留下的
- *    104 位预会话 .ASPXAUTSSM,响应才换成 128 位正式值)
+ *    浏览器 JS 会自动 POST /selfsearch/SSOLogin.aspx → 302 Index.aspx
+ * 4. 该 POST 响应同时下发两条同名 .ASPXAUTSSM Set-Cookie(先空值删除旧值,再下发
+ *    128 位正式值),浏览器按"后写覆盖先写"只保留新值,CookieJar 必须同样处理;
+ *    若重复同名 cookie 被一并发出,会话被空值污染,Index.aspx 会弹回
+ *    /selfsearch/login.aspx —— 此时带已有会话兜底再走一轮(新 ticket + 第二次 POST)
  */
 class EcardClient(
     private val client: OkHttpClient,
@@ -53,7 +52,7 @@ class EcardClient(
     private enum class WalkOutcome {
         /** 已有正式会话 */
         SESSION_OK,
-        /** SSOLogin 第一阶段完成(只拿到预会话cookie),需要带预会话再走一轮 */
+        /** SSOLogin POST 后仍被弹回 /selfsearch/login.aspx(会话未建立),兜底再走一轮 */
         SSO_PENDING,
         /** 落在 CAS 登录表单,TGC 失效 */
         CAS_LOGIN_FORM,
@@ -87,7 +86,7 @@ class EcardClient(
         return parseBalance(getBody(HOME_URL))
     }
 
-    /** 走完整 selflogin 流程;SSO 预会话阶段会自动再走一轮(新一轮拿新ticket) */
+    /** 走完整 selflogin 流程;正常单轮建立会话,若仍被弹回登录页则兜底再走一轮(新一轮拿新ticket) */
     private fun establishViaSelflogin(): Boolean {
         when (walkSelfloginOnce()) {
             WalkOutcome.SESSION_OK -> return true

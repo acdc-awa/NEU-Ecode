@@ -25,7 +25,7 @@ class EcardClient(
     private val client: OkHttpClient,
     private val credentialManager: CredentialManager,
     private val casAuthenticator: CasAuthenticator
-) {
+) : BalanceSource {
     companion object {
         private const val TAG = "EcardClient"
         private const val HOME_URL = "http://ecard.neu.edu.cn/selfsearch/User/Home.aspx"
@@ -60,7 +60,7 @@ class EcardClient(
     }
 
     /** 返回主钱包余额(如 "10.89"),失败返回 null。不抛异常,不改变凭据/二维码流程的生命周期。 */
-    fun fetchBalance(): String? {
+    override fun fetchBalance(): String? {
         return try {
             parseBalance(getBody(HOME_URL)) ?: establishSessionAndFetch()
         } catch (e: Exception) {

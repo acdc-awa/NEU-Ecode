@@ -2,6 +2,7 @@ package com.neboer.ecode
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.RadioGroup
@@ -10,6 +11,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.radiobutton.MaterialRadioButton
+import com.google.android.material.textfield.MaterialAutoCompleteTextView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -17,6 +19,10 @@ import java.io.File
 import java.util.Locale
 
 class SettingsActivity : AppCompatActivity() {
+
+    private companion object {
+        const val TAG = "SettingsActivity"
+    }
 
     /** 更新页 UI 状态机 */
     private enum class UpdateUiState {
@@ -137,6 +143,18 @@ class SettingsActivity : AppCompatActivity() {
                 else -> Unit
             }
         }
+
+        // 下载源下拉:选项与选中值均来自 UpdateChecker.UI_SOURCES
+        val ddlUpdateSource: MaterialAutoCompleteTextView = findViewById(R.id.ddlUpdateSource)
+        val sourceLabels = UpdateChecker.UI_SOURCES.map { it.label }.toTypedArray()
+        ddlUpdateSource.setSimpleItems(sourceLabels)
+        val savedSource = UpdateChecker.sourceById(settings.updateSourceId)
+        ddlUpdateSource.setText(savedSource.label, false)
+        ddlUpdateSource.setOnItemClickListener { _, _, position, _ ->
+            val picked = UpdateChecker.UI_SOURCES[position]
+            settings.updateSourceId = picked.id
+            Log.i(TAG, "下载源切换为: ${picked.label}")
+        }
     }
 
     override fun onResume() {
@@ -155,9 +173,11 @@ class SettingsActivity : AppCompatActivity() {
     private fun checkForUpdate() {
         uiState = UpdateUiState.CHECKING
         renderUpdateUi()
+        // 自动模式传 null(API 查询直连优先走代理兜底),手动源则该源优先
+        val preferredPrefix = UpdateChecker.sourceById(AppSettings(this).updateSourceId).prefix
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val result = UpdateChecker().check(currentVersion)
+                val result = UpdateChecker().check(currentVersion, preferredPrefix)
                 withContext(Dispatchers.Main) {
                     when (result) {
                         is UpdateCheckResult.UpToDate -> {
@@ -194,8 +214,9 @@ class SettingsActivity : AppCompatActivity() {
         lastProgressTime = 0L
         uiState = UpdateUiState.DOWNLOADING
         renderUpdateUi()
+        val sourceId = AppSettings(this).updateSourceId
         lifecycleScope.launch(Dispatchers.IO) {
-            downloader.download(release, downloadListener)
+            downloader.download(release, sourceId, downloadListener)
         }
     }
 

@@ -25,6 +25,14 @@ sealed class UpdateCheckResult {
 }
 
 /**
+ * 更新下载源。prefix 拼接在完整 github URL 之前,形如
+ * "https://gh-proxy.org/https://github.com/...";null 表示自动测速选择。
+ * 实测(2026-09):三个代理均支持 release 下载的 Range 断点续传,也均能
+ * 转发 api.github.com 的 release 查询。
+ */
+data class UpdateSource(val id: String, val label: String, val prefix: String?)
+
+/**
  * 在线更新检查:查询 GitHub 最新 release 并比较版本号。
  *
  * 版本号约定为 v<xx.xx.xx>(见 app/build.gradle.kts 的 tag 推导),
@@ -38,16 +46,24 @@ class UpdateChecker {
         private const val REPO = "acdc-awa/NEU-Ecode"
         private const val API_URL = "https://api.github.com/repos/$REPO/releases/latest"
 
-        /**
-         * GitHub 加速代理前缀(实测支持 Range 断点续传),拼接在完整 URL 之前,
-         * 形如 "https://gh.llkk.cc/https://github.com/..."。
-         * 这类镜像站可用性会随时间变化,失效时增删此列表即可;直连始终作为兜底。
-         */
-        val PROXY_PREFIXES = listOf(
-            "https://gh.llkk.cc/",
-            "https://ghfast.top/",
-            "https://gh-proxy.com/",
+        val SOURCE_AUTO = UpdateSource("auto", "自动选择（测速）", null)
+        val SOURCE_DIRECT = UpdateSource("direct", "GitHub 直连", "")
+
+        /** 设置页下拉里的完整选项(自动 + 手动源) */
+        val UI_SOURCES = listOf(
+            SOURCE_AUTO,
+            SOURCE_DIRECT,
+            UpdateSource("ghproxy1", "gh-proxy 源1", "https://gh-proxy.org/"),
+            UpdateSource("ghproxy2", "gh-proxy 源2", "https://v4.gh-proxy.org/"),
+            UpdateSource("axisnow", "AxisNow 源", "https://axisnow.gh-proxy.org/"),
         )
+
+        /** 这些镜像站可用性会随时间变化,失效时增删此列表即可;直连始终参与兜底 */
+        val PROXY_PREFIXES: List<String> =
+            UI_SOURCES.mapNotNull { it.prefix?.takeIf { p -> p.isNotEmpty() } }
+
+        fun sourceById(id: String?): UpdateSource =
+            UI_SOURCES.find { it.id == id } ?: SOURCE_AUTO
 
         /**
          * 解析 "v1.2.3" / "1.2.3" / "1.2.3-3-gabc"(本地 git describe 产物)为
@@ -82,11 +98,12 @@ class UpdateChecker {
         .build()
 
     /**
-     * 查询最新 release。api.github.com 直连失败时依次尝试代理前缀。
-     * 网络上全部失败时抛 IOException,由调用方提示。
+     * 查询最新 release。[preferredPrefix] 是用户手动选择的源前缀(自动模式传 null):
+     * 三个代理均能转发 API,所以手动源对查询同样生效;首选源失败后按
+     * 直连 → 其余代理 的顺序兜底。全部失败抛 IOException。
      */
-    fun check(currentVersionName: String): UpdateCheckResult {
-        val release = fetchLatestRelease()
+    fun check(currentVersionName: String, preferredPrefix: String? = null): UpdateCheckResult {
+        val release = fetchLatestRelease(preferredPrefix)
             ?: throw IOException("所有源均无法访问 GitHub")
         // tag 不符合 v<xx.xx.xx> 约定或没有 APK 资产,视为检查失败而不是误报更新
         val latest = parseVersion(release.tagName)
@@ -102,9 +119,14 @@ class UpdateChecker {
         }
     }
 
-    private fun fetchLatestRelease(): ReleaseInfo? {
-        // 直连优先(部分网络环境下最快),失败后走代理
-        val candidates = listOf("") + PROXY_PREFIXES
+    private fun fetchLatestRelease(preferredPrefix: String?): ReleaseInfo? {
+        // 首选源(手动选择)在前;自动模式直连优先,失败走代理
+        val rest = listOf("") + PROXY_PREFIXES
+        val candidates = if (preferredPrefix != null) {
+            (listOf(preferredPrefix) + rest).distinct()
+        } else {
+            rest
+        }
         for (prefix in candidates) {
             val url = prefix + API_URL
             try {

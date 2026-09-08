@@ -24,7 +24,7 @@ Plain Activities with hand-rolled OkHttp networking — no DI, ViewModel, or Rep
 ### Activities
 
 - `LoginActivity` (launcher) — if `CredentialManager.hasCredential()`, jumps straight to `MainActivity`; otherwise shows the CAS login form
-- `MainActivity` — QR display: a `lifecycleScope` coroutine loop polls `EcodeApiClient.fetchQRCode()` every 10 s, renders the returned string with ZXing `QRCodeWriter`, and forces screen brightness to 1.0 while the QR is visible. Tapping the QR card toggles visibility. A null fetch result (re-auth failed) wipes credentials/cookies and relaunches `LoginActivity`
+- `MainActivity` — QR display: a `lifecycleScope` coroutine loop polls `EcodeApiClient.fetchQRCode()` every 10 s, renders the returned string with ZXing `QRCodeWriter`, and forces screen brightness to 1.0 while the QR is visible. The same loop refreshes the card balance via `EcardClient` at most every 60 s (shown in `tvBalance`). Tapping the QR card toggles visibility. A null fetch result (re-auth failed) wipes credentials/cookies and relaunches `LoginActivity`
 - `SettingsActivity` — back-press mode (single/double) radio buttons; "switch account" clears cookies + credentials and relaunches `LoginActivity`
 
 ### Auth + QR flow (the core)
@@ -34,6 +34,7 @@ Plain Activities with hand-rolled OkHttp networking — no DI, ViewModel, or Rep
 3. `PersistentCookieJar` — OkHttp `CookieJar` persisted to SharedPreferences ("ecode_cookies") so the session survives app restarts. Deliberately normalizes every cookie's path to `"/"` so cookies share across subpaths — preserve that behavior
 4. `CredentialManager` — `EncryptedSharedPreferences` ("ecode_cred") holding username, password, XSRF token
 5. `AppSettings` — plain SharedPreferences ("ecode_settings"): `backPressMode`, `qrVisible`
+6. `EcardClient` — fetches the campus-card balance from `http://ecard.neu.edu.cn/selfsearch/User/Home.aspx` (plain HTTP; regex on `主钱包余额`). Its session is the `.ASPXAUTSSM` cookie, established by manually following the redirect chain from `http://ecard.neu.edu.cn/selflogin/login.aspx` — that 302 reveals the real CAS service URL, and a valid CAS TGC gets a ticket issued with no credentials. If the walk lands on the CAS login form, it runs `CasAuthenticator.login()` (ecode service, refreshes the TGC) and retries once. Balance failures never clear credentials or disturb the QR flow
 
 ## Conventions and gotchas
 

@@ -42,6 +42,18 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/tvUsername" />
 
+    <TextView
+        android:id="@+id/tvBalance"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="@string/balance_unknown"
+        android:textColor="@color/md_theme_on_surface_variant"
+        android:textSize="14sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tvStatus" />
+
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/cardQRCode"
         android:layout_width="wrap_content"
@@ -52,7 +64,7 @@
         app:contentPadding="16dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/tvStatus"
+        app:layout_constraintTop_toBottomOf="@id/tvBalance"
         app:strokeColor="@color/md_theme_outline"
         app:strokeWidth="1dp">
 

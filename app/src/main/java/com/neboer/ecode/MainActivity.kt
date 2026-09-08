@@ -27,16 +27,19 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
+        private const val BALANCE_REFRESH_INTERVAL_MS = 60_000L
     }
 
     private lateinit var credentialManager: CredentialManager
     private lateinit var cookieJar: PersistentCookieJar
     private lateinit var apiClient: EcodeApiClient
+    private lateinit var ecardClient: EcardClient
     private lateinit var casAuthenticator: CasAuthenticator
     private lateinit var settings: AppSettings
 
     private lateinit var tvUsername: TextView
     private lateinit var tvStatus: TextView
+    private lateinit var tvBalance: TextView
     private lateinit var ivQRCode: ImageView
     private lateinit var layoutQRPlaceholder: View
     private lateinit var cardQRCode: View
@@ -47,6 +50,7 @@ class MainActivity : AppCompatActivity() {
     private var qrVisible: Boolean = true
     private var originalBrightness: Float = -1f
     private var lastBackPressTime: Long = 0
+    private var lastBalanceFetchAt: Long = 0
 
     private val settingsLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -66,6 +70,7 @@ class MainActivity : AppCompatActivity() {
 
         tvUsername = findViewById(R.id.tvUsername)
         tvStatus = findViewById(R.id.tvStatus)
+        tvBalance = findViewById(R.id.tvBalance)
         ivQRCode = findViewById(R.id.ivQRCode)
         layoutQRPlaceholder = findViewById(R.id.layoutQRPlaceholder)
         cardQRCode = findViewById(R.id.cardQRCode)
@@ -83,6 +88,7 @@ class MainActivity : AppCompatActivity() {
 
         casAuthenticator = CasAuthenticator(okHttpClient, credentialManager)
         apiClient = EcodeApiClient(okHttpClient, credentialManager, casAuthenticator)
+        ecardClient = EcardClient(okHttpClient, credentialManager, casAuthenticator)
 
         tvUsername.text = credentialManager.getUsername()
 
@@ -135,8 +141,24 @@ class MainActivity : AppCompatActivity() {
                 }
                 qrBitmap = bitmap
                 ivQRCode.setImageBitmap(bitmap)
+                maybeRefreshBalance()
                 delay(10_000L)
             }
+        }
+    }
+
+    /** 每60秒随二维码轮询刷新一次余额;失败时保留上次显示,不影响二维码流程 */
+    private suspend fun maybeRefreshBalance() {
+        val now = System.currentTimeMillis()
+        if (now - lastBalanceFetchAt < BALANCE_REFRESH_INTERVAL_MS) return
+        lastBalanceFetchAt = now
+        val balance = withContext(Dispatchers.IO) {
+            ecardClient.fetchBalance()
+        }
+        if (balance != null) {
+            tvBalance.text = getString(R.string.balance_format, balance)
+        } else {
+            Log.w(TAG, "余额获取失败,保留上次显示")
         }
     }
 

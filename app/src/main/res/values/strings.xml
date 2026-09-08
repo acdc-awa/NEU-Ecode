@@ -12,5 +12,7 @@
     <string name="settings_version">版本 %1$s</string>
     <string name="qr_hidden_placeholder">点击显示二维码</string>
     <string name="back_press_again">再按一次退出</string>
+    <string name="balance_format">余额：%1$s 元</string>
+    <string name="balance_unknown">余额：--</string>
     <string name="settings_credit">作者：acdc \nqq:2743984989</string>
 </resources>

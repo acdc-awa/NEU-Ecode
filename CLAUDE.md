@@ -42,4 +42,3 @@ Plain Activities with hand-rolled OkHttp networking — no DI, ViewModel, or Rep
 - `docs/superpowers/specs/2026-04-27-ecode-cleanup-design.md` is an agreed cleanup design: remove all `Log.d`, keep `Log.e` and minimal `Log.i`. The Material 3 UI part is applied (M3 DayNight theme, 东大蓝 `#003366` palette in `colors.xml` + `values-night/`), but the logging cleanup is **not** applied — `Log.d` remains pervasive and is the debugging breadcrumb trail for the auth flow
 - When login breaks, suspect a server-side change at `pass.neu.edu.cn`/`ecode.neu.edu.cn` first — the code is a screen-scraper, not an API client
 - Release build has minify disabled; the manifest uses cleartext traffic for the campus endpoints
-- `problem.md` in the repo root is a leftover note about MaterialCardView borders in `activity_settings.xml`; not architecture documentation

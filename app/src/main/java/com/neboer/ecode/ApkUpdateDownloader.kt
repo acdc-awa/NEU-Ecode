@@ -116,39 +116,12 @@ class ApkUpdateDownloader(private val context: Context) {
     }
 
     /**
-     * 自动选源:对每个源并发发一个 Range 0-1023 的真实资产请求,
-     * 按响应耗时排序(失败排最后),返回源前缀顺序。直连("")也参与测速。
+     * 自动选源:对每个源并发测到真实资产 URL 的延迟,按耗时排序(失败排最后),
+     * 返回源前缀顺序。直连("")也参与测速。
      */
     private fun measureSourceOrder(release: ReleaseInfo): List<String> {
         val candidates = UpdateChecker.PROXY_PREFIXES + ""
-        val latencies = java.util.concurrent.ConcurrentHashMap<String, Long>()
-        val latch = java.util.concurrent.CountDownLatch(candidates.size)
-        for (prefix in candidates) {
-            val request = Request.Builder()
-                .url(prefix + release.apkUrl)
-                .header("Range", "bytes=0-1023")
-                .header("Accept-Encoding", "identity")
-                .build()
-            val startAt = System.nanoTime()
-            // 单独的短超时客户端:测速卡住的源最多等 5 秒,不拖慢整体
-            client.newBuilder()
-                .callTimeout(5, TimeUnit.SECONDS)
-                .build()
-                .newCall(request)
-                .enqueue(object : okhttp3.Callback {
-                    override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                        response.close()
-                        latencies[prefix] = System.nanoTime() - startAt
-                        latch.countDown()
-                    }
-
-                    override fun onFailure(call: okhttp3.Call, e: IOException) {
-                        latencies[prefix] = Long.MAX_VALUE
-                        latch.countDown()
-                    }
-                })
-        }
-        latch.await(8, TimeUnit.SECONDS)
+        val latencies = UpdateChecker.measureLatencies(candidates, release.apkUrl)
         val order = candidates.sortedBy { latencies[it] ?: Long.MAX_VALUE }
         Log.i(
             TAG, "源测速结果: " + order.joinToString { p ->

@@ -47,6 +47,10 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var progressDownload: ProgressBar
     private lateinit var tvProgress: TextView
     private lateinit var btnUpdateAction: MaterialButton
+    private lateinit var ddlUpdateSource: MaterialAutoCompleteTextView
+
+    /** 最近一次测速结果(prefix → 纳秒,失败为 Long.MAX_VALUE) */
+    private var sourceLatencies: Map<String, Long> = emptyMap()
 
     private val downloadListener = object : ApkUpdateDownloader.Listener {
         // 回调已由下载器投递到主线程
@@ -145,15 +149,49 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         // 下载源下拉:选项与选中值均来自 UpdateChecker.UI_SOURCES
-        val ddlUpdateSource: MaterialAutoCompleteTextView = findViewById(R.id.ddlUpdateSource)
-        val sourceLabels = UpdateChecker.UI_SOURCES.map { it.label }.toTypedArray()
-        ddlUpdateSource.setSimpleItems(sourceLabels)
-        val savedSource = UpdateChecker.sourceById(settings.updateSourceId)
-        ddlUpdateSource.setText(savedSource.label, false)
+        ddlUpdateSource = findViewById(R.id.ddlUpdateSource)
+        ddlUpdateSource.setSimpleItems(UpdateChecker.UI_SOURCES.map { it.label }.toTypedArray())
+        ddlUpdateSource.setText(UpdateChecker.sourceById(settings.updateSourceId).label, false)
         ddlUpdateSource.setOnItemClickListener { _, _, position, _ ->
             val picked = UpdateChecker.UI_SOURCES[position]
             settings.updateSourceId = picked.id
             Log.i(TAG, "下载源切换为: ${picked.label}")
+        }
+
+        // 测速:对全部源(含直连)并发测到 GitHub API 的延迟,结果显示在下拉列表里
+        val btnSpeedTest: MaterialButton = findViewById(R.id.btnSpeedTest)
+        btnSpeedTest.setOnClickListener {
+            btnSpeedTest.isEnabled = false
+            btnSpeedTest.setText(R.string.update_speed_testing)
+            lifecycleScope.launch(Dispatchers.IO) {
+                val latencies = UpdateChecker.measureLatencies(
+                    UpdateChecker.PROXY_PREFIXES + "", UpdateChecker.API_URL
+                )
+                withContext(Dispatchers.Main) {
+                    btnSpeedTest.isEnabled = true
+                    btnSpeedTest.setText(R.string.update_speed_test)
+                    sourceLatencies = latencies
+                    refreshSourceDropdown()
+                }
+            }
+        }
+    }
+
+    /** 用测速结果重绘下拉选项(如 "gh-proxy 源1 · 388ms")并保持当前选中项 */
+    private fun refreshSourceDropdown() {
+        val labels = UpdateChecker.UI_SOURCES.map { sourceLabel(it) }.toTypedArray()
+        ddlUpdateSource.setSimpleItems(labels)
+        val selected = UpdateChecker.sourceById(AppSettings(this).updateSourceId)
+        ddlUpdateSource.setText(sourceLabel(selected), false)
+    }
+
+    private fun sourceLabel(source: UpdateSource): String {
+        if (source.prefix == null) return source.label // 自动选择:模式,不显示延迟
+        val ns = sourceLatencies[source.prefix] ?: return source.label
+        return if (ns == Long.MAX_VALUE) {
+            getString(R.string.update_speed_timeout, source.label)
+        } else {
+            "${source.label} · ${ns / 1_000_000}ms"
         }
     }
 

@@ -2,7 +2,6 @@
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/rootLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -21,14 +20,6 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
-
-        <TextView
-            android:id="@+id/tvBrandBadge"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:background="@drawable/ic_launcher"
-            android:gravity="center"
-            android:visibility="gone" />
 
         <TextView
             android:id="@+id/tvUsername"
@@ -63,189 +54,184 @@
             app:tint="?attr/colorOnSurfaceVariant" />
     </LinearLayout>
 
-    <!-- 垂直居中容器:彻底告别下半屏死白,实现视觉黄金分割 -->
-    <LinearLayout
-        android:id="@+id/layoutCenterContent"
+    <!-- 百分比基准线:让二维码卡片垂直中心定位在屏幕 38% 黄金扫码偏上位置 -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidelineQrCenter"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:gravity="center_horizontal"
-        android:orientation="vertical"
-        app:layout_constraintBottom_toBottomOf="parent"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.38" />
+
+    <!-- 状态药丸 (Status Pill):位于二维码卡片上方 -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/cardStatusPill"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        app:cardBackgroundColor="@color/status_pill_background"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="0dp"
+        app:layout_constraintBottom_toTopOf="@id/cardQRCode"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/layoutHeader"
-        app:layout_constraintVertical_bias="0.45">
+        app:strokeWidth="0dp">
 
-        <!-- 状态药丸 (Status Pill):小巧绿点 + 二维码有效 -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardStatusPill"
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
-            app:cardBackgroundColor="@color/status_pill_background"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
-            app:strokeWidth="0dp">
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="5dp">
 
-            <LinearLayout
+            <TextView
+                android:id="@+id/tvStatus"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingHorizontal="12dp"
-                android:paddingVertical="5dp">
+                android:text="@string/qr_valid_no_expiry"
+                android:textColor="@color/status_pill_text"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
-                <View
-                    android:id="@+id/viewStatusDot"
-                    android:layout_width="6dp"
-                    android:layout_height="6dp"
-                    android:layout_marginEnd="6dp"
-                    android:background="@drawable/ic_refresh"
-                    android:backgroundTint="@color/status_pill_dot"
-                    android:visibility="gone" />
+    <!-- 核心二维码 M3 卡片:
+         - 宽度占屏幕宽度的 72%(上限 300dp),宽高比 1:1,自适应不同屏幕尺寸
+         - 采用 20dp 纯圆角,直接作为白底卡片承载二维码,彻底杜绝直角方块
+         - 垂直中心严格锚定在 38% 百分比位置 -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/cardQRCode"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:clickable="true"
+        android:focusable="true"
+        app:cardBackgroundColor="@color/qr_canvas_background"
+        app:cardCornerRadius="20dp"
+        app:cardElevation="0dp"
+        app:layout_constraintBottom_toBottomOf="@id/guidelineQrCenter"
+        app:layout_constraintDimensionRatio="1:1"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@id/guidelineQrCenter"
+        app:layout_constraintWidth_max="300dp"
+        app:layout_constraintWidth_percent="0.72"
+        app:strokeColor="?attr/colorOutlineVariant"
+        app:strokeWidth="1dp">
 
-                <TextView
-                    android:id="@+id/tvStatus"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/qr_valid_no_expiry"
-                    android:textColor="@color/status_pill_text"
-                    android:textSize="12sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="16dp">
 
-        <!-- 余额交互式微胶囊 (Balance Pill) -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardBalance"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp"
-            android:clickable="true"
-            android:focusable="true"
-            app:cardBackgroundColor="?attr/colorSurfaceContainer"
-            app:cardCornerRadius="20dp"
-            app:cardElevation="1dp"
-            app:strokeColor="?attr/colorOutlineVariant"
-            app:strokeWidth="1dp">
+            <ImageView
+                android:id="@+id/ivQRCode"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="fitCenter" />
 
+            <!-- 遮罩态与未登录空态 -->
             <LinearLayout
-                android:id="@+id/layoutBalance"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingHorizontal="14dp"
-                android:paddingVertical="7dp">
+                android:id="@+id/layoutQRPlaceholder"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
 
                 <ImageView
-                    android:layout_width="16dp"
-                    android:layout_height="16dp"
-                    android:layout_marginEnd="6dp"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:alpha="0.4"
                     android:contentDescription="@null"
-                    android:src="@drawable/ic_wallet"
-                    app:tint="?attr/colorPrimary" />
+                    android:src="@drawable/ic_lock"
+                    app:tint="@color/md_theme_on_surface_variant" />
 
                 <TextView
-                    android:id="@+id/tvBalanceLabel"
+                    android:id="@+id/tvPlaceholderText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginEnd="4dp"
-                    android:text="@string/balance_label"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textSize="12sp" />
+                    android:layout_marginTop="10dp"
+                    android:alpha="0.6"
+                    android:text="@string/qr_hidden_placeholder"
+                    android:textColor="@color/md_theme_on_surface_variant"
+                    android:textSize="13sp" />
 
-                <TextView
-                    android:id="@+id/tvBalance"
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnLogin"
+                    style="@style/Widget.Material3.Button.TonalButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/balance_unknown"
-                    android:textColor="?attr/colorPrimary"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <ImageButton
-                    android:id="@+id/btnRefreshBalance"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:layout_marginStart="4dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="@string/refresh_balance"
-                    android:padding="4dp"
-                    android:src="@drawable/ic_refresh"
-                    app:tint="?attr/colorOnSurfaceVariant" />
+                    android:layout_marginTop="12dp"
+                    android:text="@string/login_action"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
             </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+        </FrameLayout>
+    </com.google.android.material.card.MaterialCardView>
 
-        <!-- 核心二维码 M3 ElevatedCard -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardQRCode"
+    <!-- 余额交互式胶囊 (Balance Pill):置于二维码卡片下方,距离二维码卡片 24dp -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/cardBalance"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:clickable="true"
+        android:focusable="true"
+        app:cardBackgroundColor="?attr/colorSurfaceContainer"
+        app:cardCornerRadius="20dp"
+        app:cardElevation="1dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/cardQRCode"
+        app:strokeColor="?attr/colorOutlineVariant"
+        app:strokeWidth="1dp">
+
+        <LinearLayout
+            android:id="@+id/layoutBalance"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:clickable="true"
-            android:focusable="true"
-            app:cardBackgroundColor="?attr/colorSurfaceContainer"
-            app:cardCornerRadius="24dp"
-            app:cardElevation="3dp"
-            app:strokeColor="?attr/colorOutlineVariant"
-            app:strokeWidth="1dp">
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="7dp">
 
-            <!-- 内部高对比度圆角安全白仓 -->
-            <FrameLayout
-                android:id="@+id/layoutQRCanvas"
-                android:layout_width="280dp"
-                android:layout_height="280dp"
-                android:layout_margin="12dp"
-                android:background="@color/qr_canvas_background"
-                android:padding="12dp">
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginEnd="6dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_wallet"
+                app:tint="?attr/colorPrimary" />
 
-                <ImageView
-                    android:id="@+id/ivQRCode"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:scaleType="fitCenter" />
+            <TextView
+                android:id="@+id/tvBalanceLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:text="@string/balance_label"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textSize="12sp" />
 
-                <!-- 遮罩态与未登录空态 -->
-                <LinearLayout
-                    android:id="@+id/layoutQRPlaceholder"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:gravity="center"
-                    android:orientation="vertical"
-                    android:visibility="gone">
+            <TextView
+                android:id="@+id/tvBalance"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/balance_unknown"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
-                    <ImageView
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
-                        android:alpha="0.4"
-                        android:contentDescription="@null"
-                        android:src="@drawable/ic_lock"
-                        app:tint="@color/md_theme_on_surface_variant" />
-
-                    <TextView
-                        android:id="@+id/tvPlaceholderText"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:alpha="0.6"
-                        android:text="@string/qr_hidden_placeholder"
-                        android:textColor="@color/md_theme_on_surface_variant"
-                        android:textSize="13sp" />
-
-                    <!-- 未登录空态进入登录按钮 -->
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnLogin"
-                        style="@style/Widget.Material3.Button.TonalButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:text="@string/login_action"
-                        android:textSize="12sp"
-                        android:visibility="gone" />
-                </LinearLayout>
-            </FrameLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-    </LinearLayout>
+            <ImageButton
+                android:id="@+id/btnRefreshBalance"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginStart="4dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/refresh_balance"
+                android:padding="4dp"
+                android:src="@drawable/ic_refresh"
+                app:tint="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

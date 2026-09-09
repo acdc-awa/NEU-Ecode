@@ -115,12 +115,29 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         findViewById<MaterialButton>(R.id.btnSwitchAccount).setOnClickListener {
-            PersistentCookieJar(this).clear()
-            CredentialManager(this).clear()
+            // 会话在 CookieManager(WebView 登录种下),全清后回登录页重登
+            WebViewCookieJar.clearAll()
             val intent = Intent(this, LoginActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             }
             startActivity(intent)
+        }
+
+        // 余额数据源:ecard 权威值(仅校园网) / portal JSON(公网可达,数值可能不同步)
+        val ddlBalanceSource: MaterialAutoCompleteTextView = findViewById(R.id.ddlBalanceSource)
+        val balanceLabels = listOf(
+            getString(R.string.balance_source_ecard),
+            getString(R.string.balance_source_portal),
+        )
+        ddlBalanceSource.setSimpleItems(balanceLabels.toTypedArray())
+        ddlBalanceSource.setText(
+            if (settings.balanceSource == BalanceSourceKind.PORTAL) balanceLabels[1] else balanceLabels[0],
+            false
+        )
+        ddlBalanceSource.setOnItemClickListener { _, _, position, _ ->
+            settings.balanceSource =
+                if (position == 1) BalanceSourceKind.PORTAL else BalanceSourceKind.ECARD
+            Log.i(TAG, "余额数据源切换为: ${balanceLabels[position]}")
         }
 
         currentVersion = try {

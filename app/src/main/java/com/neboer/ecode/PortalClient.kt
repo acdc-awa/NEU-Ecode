@@ -23,15 +23,13 @@ import java.util.concurrent.TimeUnit
  * CookieJar 过站),兑票后 GET /portal/ 签发 SESS_ID。直接对 tpass 传
  * service=根路径 无效——根路径不消费 ticket,SESS_ID 也无人签发
  * (2026-09-09 webview-demo 实测修正,commit 77695a9)。
- * CASTGC 失效时先用存储凭据 CasAuthenticator.login() 刷新再试。
+ * CASTGC 失效时无法静默恢复,返回 null 由 UI 引导重新登录。
  *
  * 注意:当前门户与 ecard 的余额数值不同步(门户读数偏大),主界面数值以 EcardClient
  * 为准;两侧数据同步后,把 MainActivity 的余额源换成本类即可(同样实现 BalanceSource)。
  */
 class PortalClient(
-    client: OkHttpClient,
-    private val credentialManager: CredentialManager,
-    private val casAuthenticator: CasAuthenticator
+    private val client: OkHttpClient
 ) : BalanceSource {
 
     companion object {
@@ -74,20 +72,10 @@ class PortalClient(
     }
 
     private fun establishSessionAndFetch(): String? {
-        Log.i(TAG, "门户会话无效,经CAS兑票建立会话")
+        Log.i(TAG, "门户会话无效,经cas_login入口兑票建立会话(靠CASTGC静默换票)")
         if (establishViaCas()) return fetchCardBalance()
-        Log.w(TAG, "CAS兑票未落到门户(CASTGC可能失效),先用存储凭据重新登录刷新TGC")
-        val username = credentialManager.getUsername()
-        val password = credentialManager.getPassword()
-        if (username == null || password == null || !casAuthenticator.login(username, password)) {
-            Log.w(TAG, "CAS重新登录失败,本次放弃门户余额获取")
-            return null
-        }
-        if (!establishViaCas()) {
-            Log.w(TAG, "CAS登录后仍未建立门户会话")
-            return null
-        }
-        return fetchCardBalance()
+        Log.w(TAG, "CAS兑票未落到门户(CASTGC可能失效),无法静默恢复,需重新登录")
+        return null
     }
 
     /**

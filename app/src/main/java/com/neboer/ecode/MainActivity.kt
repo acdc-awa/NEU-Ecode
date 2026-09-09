@@ -31,11 +31,9 @@ class MainActivity : AppCompatActivity() {
         private const val TAG = "MainActivity"
     }
 
-    private lateinit var credentialManager: CredentialManager
-    private lateinit var cookieJar: PersistentCookieJar
     private lateinit var apiClient: EcodeApiClient
     private lateinit var ecardClient: EcardClient
-    private lateinit var casAuthenticator: CasAuthenticator
+    private lateinit var portalClient: PortalClient
     private lateinit var settings: AppSettings
 
     private lateinit var tvUsername: TextView
@@ -80,21 +78,20 @@ class MainActivity : AppCompatActivity() {
         cardQRCode = findViewById(R.id.cardQRCode)
         btnSettings = findViewById(R.id.btnSettings)
 
-        credentialManager = CredentialManager(this)
-        cookieJar = PersistentCookieJar(this)
         settings = AppSettings(this)
 
         originalBrightness = readSystemBrightness()
 
+        // 会话唯一来源 = CookieManager(WebView 登录种下),OkHttp 经 WebViewCookieJar 共享
         val okHttpClient = okhttp3.OkHttpClient.Builder()
-            .cookieJar(cookieJar)
+            .cookieJar(WebViewCookieJar())
             .build()
 
-        casAuthenticator = CasAuthenticator(okHttpClient, credentialManager)
-        apiClient = EcodeApiClient(okHttpClient, credentialManager, casAuthenticator)
-        ecardClient = EcardClient(okHttpClient, credentialManager, casAuthenticator)
+        apiClient = EcodeApiClient(okHttpClient)
+        ecardClient = EcardClient(okHttpClient)
+        portalClient = PortalClient(okHttpClient)
 
-        tvUsername.text = credentialManager.getUsername()
+        tvUsername.text = getString(R.string.app_name)
 
         qrVisible = settings.qrVisible
         applyQRVisibility()
@@ -129,10 +126,9 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 if (result == null) {
-                    Log.w(TAG, "fetchQRCode返回null，认证失败，清空凭据回登录页")
-                    tvStatus.text = "认证失败，请重新登录"
-                    cookieJar.clear()
-                    credentialManager.clear()
+                    Log.w(TAG, "fetchQRCode返回null,CASTGC失效,清空会话回登录页")
+                    tvStatus.text = "登录已过期,请重新登录"
+                    WebViewCookieJar.clearAll()
                     ivQRCode.setImageBitmap(null)
                     qrBitmap = null
                     val intent = Intent(this@MainActivity, LoginActivity::class.java).apply {
@@ -153,19 +149,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 启动时和点按钮时拉一次余额;进行中重复点击忽略,失败 Toast 提示 */
+    /** 启动时和点按钮时拉一次余额(数据源按设置:ecard 权威值/portal JSON);进行中重复点击忽略,失败 Toast 提示 */
     private fun loadBalance() {
         if (balanceJob?.isActive == true) return
+        val source: BalanceSource = when (settings.balanceSource) {
+            BalanceSourceKind.PORTAL -> portalClient
+            else -> ecardClient
+        }
         balanceJob = lifecycleScope.launch {
             setBalanceRefreshing(true)
             val balance = withContext(Dispatchers.IO) {
-                ecardClient.fetchBalance()
+                source.fetchBalance()
             }
             setBalanceRefreshing(false)
             if (balance != null) {
                 tvBalance.text = getString(R.string.balance_format, balance)
             } else {
-                Log.w(TAG, "余额获取失败")
+                Log.w(TAG, "余额获取失败(source=${settings.balanceSource})")
                 Toast.makeText(this@MainActivity, R.string.balance_refresh_failed, Toast.LENGTH_SHORT).show()
             }
         }

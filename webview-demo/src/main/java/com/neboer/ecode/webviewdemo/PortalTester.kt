@@ -26,9 +26,12 @@ class PortalTester(private val client: OkHttpClient) {
         private const val CARD_BALANCE_KEY = "card.balance"
         private const val NET_BALANCE_KEY = "net.balance"
 
-        // 抓包(2026-09)中门户走 CAS 的 service 参数;服务端若调整以实际 302 的 Location 为准
-        private const val CAS_SERVICE_URL =
-            "https://pass.neu.edu.cn/tpass/login?service=https%3A%2F%2Fpersonal.neu.edu.cn%2F"
+        // 门户自己的 CAS 入口(ticket 消费端点是 cas_login/1,service 由服务端自己拼;
+        // 直接对 tpass 传 service=根路径 无效——根路径不消费 ticket,详见 .har/personal.neu.edu.cn.har)
+        private const val CAS_LOGIN_ENTRY_URL =
+            "https://personal.neu.edu.cn/portal/manage/common/cas_login/1?to_bind=0&redirect=https%3A%2F%2Fpersonal.neu.edu.cn%2Fportal"
+        // SESS_ID 由 /portal/ 页面签发,兑票成功后需预热一发
+        private const val PORTAL_HOME_URL = "https://personal.neu.edu.cn/portal/"
         private const val PORTAL_HOST = "personal.neu.edu.cn"
         private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36"
     }
@@ -51,9 +54,9 @@ class PortalTester(private val client: OkHttpClient) {
         trace.append("① 现有会话直接请求 items 接口\n")
         var cardId = findItemId(CARD_BALANCE_KEY)
         if (cardId == null) {
-            trace.append("② 无会话,经 CAS service 兑票建立门户会话(依赖 WebView 拦截到的 CASTGC,不带账密)\n")
-            if (!establishViaCas()) {
-                return done("✗ CAS兑票未落到 personal.neu.edu.cn(CASTGC 未生效或网络环境拦截,见轨迹)")
+            trace.append("② 无会话,走门户 cas_login 入口兑票建立会话(依赖 WebView 拦截到的 CASTGC,不带账密)\n")
+            if (!establishPortalSession()) {
+                return done("✗ 兑票链未成功落回 personal.neu.edu.cn(CASTGC 未生效或网络环境拦截,见轨迹)")
             }
             trace.append("③ 会话已建立,重新请求 items\n")
             cardId = findItemId(CARD_BALANCE_KEY)
@@ -85,16 +88,27 @@ class PortalTester(private val client: OkHttpClient) {
         trace.append("   $msg\n")
     }
 
-    /** 靠共享 CookieJar 里的 CASTGC 走 CAS service 兑票,最终落在 personal.neu.edu.cn 即算建立 */
-    private fun establishViaCas(): Boolean {
+    /**
+     * 走门户自己的 SSO 入口建立会话:cas_login/1 → 302 tpass/login?service=…(CASTGC 自动过站)
+     * → 302 cas_login/1?…&ticket=ST → 校验下发 CK_LC/CK_VL → 落回 /portal。
+     * SESS_ID 由 /portal/ 页面签发,兑票成功后补一发预热。
+     */
+    private fun establishPortalSession(): Boolean {
         val response = followClient.newCall(
-            Request.Builder().url(CAS_SERVICE_URL).header("User-Agent", USER_AGENT).get().build()
+            Request.Builder().url(CAS_LOGIN_ENTRY_URL).header("User-Agent", USER_AGENT).get().build()
         ).execute()
         val landed = response.request.url
         val code = response.code
         response.close()
-        traceLine("CAS兑票: HTTP $code 落地 $landed")
-        return landed.host == PORTAL_HOST
+        traceLine("兑票链落地: HTTP $code $landed")
+        if (landed.host != PORTAL_HOST) return false
+
+        val home = followClient.newCall(
+            Request.Builder().url(PORTAL_HOME_URL).header("User-Agent", USER_AGENT).get().build()
+        ).execute()
+        home.close()
+        traceLine("门户首页预热(签发SESS_ID): $PORTAL_HOME_URL")
+        return true
     }
 
     /** 从 items 列表按 key 找条目 id;未登录(302)或结构变化返回 null */

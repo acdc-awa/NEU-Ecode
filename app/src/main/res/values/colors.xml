@@ -10,6 +10,15 @@
     <color name="md_theme_on_background">#1C1B1F</color>
     <color name="md_theme_surface">#FFFFFF</color>
     <color name="md_theme_on_surface">#1C1B1F</color>
+    <color name="md_theme_surface_container">#FFFFFF</color>
+    <color name="md_theme_surface_container_high">#EEF2F6</color>
     <color name="md_theme_on_surface_variant">#49454F</color>
     <color name="md_theme_outline">#CAC4D0</color>
+    <color name="md_theme_outline_variant">#E2E8F0</color>
+
+    <!-- 状态指示与扫码专属配色 -->
+    <color name="qr_canvas_background">#FFFFFF</color>
+    <color name="status_pill_background">#E8F5E9</color>
+    <color name="status_pill_text">#2E7D32</color>
+    <color name="status_pill_dot">#4CAF50</color>
 </resources>

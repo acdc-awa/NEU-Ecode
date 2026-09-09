@@ -11,21 +11,13 @@ import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.progressindicator.LinearProgressIndicator
 
-/**
- * WebView 登录:从主界面空态"去登录"按钮或设置页"登录/切换账号"进入(不再是启动器)。
- *
- * - 拉起 WebView 加载 CAS 登录页(service=ecode SSO 兑换接口),账密/短信验证/
- *   WebVPN 重写全部交给真实浏览器行为;已有 CASTGC 时 CAS 会静默过票自动完成
- * - 轮询 CookieManager,ecode 域出现 XSRF-TOKEN 即登录成功(实测确认 ecode API
- *   会话只依赖它;CASTGC 在账密通过、短信未输入时就会种下,不能作判定依据)
- * - 成功后 setResult(RESULT_OK) 并 CLEAR_TOP 回主界面,主界面 onResume 检测到
- *   新会话后自动刷新二维码与余额
- */
 class LoginActivity : AppCompatActivity() {
 
     companion object {
@@ -36,7 +28,7 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private lateinit var webView: WebView
-    private lateinit var tvLoginStatus: TextView
+    private lateinit var cardLoginStatus: View
     private lateinit var progressLogin: LinearProgressIndicator
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -56,8 +48,17 @@ class LoginActivity : AppCompatActivity() {
         Log.d(TAG, "onCreate")
         setContentView(R.layout.activity_login)
 
+        // 边到边沉浸式适配
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.rootLoginLayout)) { view, insets ->
+            val statusBarInsets = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            val navBarInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            findViewById<View>(R.id.toolbarLogin).updatePadding(top = statusBarInsets.top)
+            view.updatePadding(bottom = navBarInsets.bottom)
+            insets
+        }
+
         webView = findViewById(R.id.webView)
-        tvLoginStatus = findViewById(R.id.tvLoginStatus)
+        cardLoginStatus = findViewById(R.id.cardLoginStatus)
         progressLogin = findViewById(R.id.progressLogin)
 
         findViewById<MaterialToolbar>(R.id.toolbarLogin).setNavigationOnClickListener {
@@ -101,7 +102,7 @@ class LoginActivity : AppCompatActivity() {
         loggedIn = true
         mainHandler.removeCallbacks(pollRunnable)
         Log.d(TAG, "登录成功(XSRF-TOKEN已落地),CLEAR_TOP回主界面自动刷新")
-        tvLoginStatus.visibility = View.VISIBLE
+        cardLoginStatus.visibility = View.VISIBLE
         setResult(RESULT_OK)
         // 主界面通常已在栈底(空态/设置页进入):清掉其上的设置/登录页直接回到它
         startActivity(

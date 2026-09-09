@@ -298,10 +298,10 @@ class WebViewLoginDemoActivity : AppCompatActivity() {
         return try {
             val attrs = JSONObject(body).getJSONArray("data").getJSONObject(0).getJSONObject("attributes")
             val create = attrs.optLong("createTime")
-            val invalid = attrs.optLong("qrInvaildTime")
+            val invalid = attrs.optLong("qrInvalidTime")
             val sb = StringBuilder("二维码已生成 ✓\n")
             sb.append("createTime:    ${fmtUnix(create)}\n")
-            sb.append("qrInvaildTime: ${fmtUnix(invalid)}")
+            sb.append("qrInvalidTime: ${fmtUnix(invalid)}")
             if (create > 0 && invalid > create) {
                 val unit = if (invalid > 10_000_000_000L) 1000L else 1L
                 val now = System.currentTimeMillis() / 1000 * 1000

@@ -19,9 +19,11 @@ import java.util.concurrent.TimeUnit
  * 两次请求只需 SESS_ID cookie + Accept: application/json(浏览器还带了
  * X-Requested-With: XMLRequest,非必需,这里照带以贴近浏览器指纹)。
  *
- * 会话:直接以 CAS service=https://personal.neu.edu.cn/ 兑票,靠共享 CookieJar 里的
- * CASTGC 过站,落地后 personal.neu.edu.cn 下发 SESS_ID;CASTGC 失效时先用存储凭据
- * CasAuthenticator.login() 刷新再试。
+ * 会话:走门户自己的 SSO 入口 cas_login/1(由它拼 service 去 CAS,CASTGC 靠共享
+ * CookieJar 过站),兑票后 GET /portal/ 签发 SESS_ID。直接对 tpass 传
+ * service=根路径 无效——根路径不消费 ticket,SESS_ID 也无人签发
+ * (2026-09-09 webview-demo 实测修正,commit 77695a9)。
+ * CASTGC 失效时先用存储凭据 CasAuthenticator.login() 刷新再试。
  *
  * 注意:当前门户与 ecard 的余额数值不同步(门户读数偏大),主界面数值以 EcardClient
  * 为准;两侧数据同步后,把 MainActivity 的余额源换成本类即可(同样实现 BalanceSource)。
@@ -39,9 +41,11 @@ class PortalClient(
         private const val DETAIL_URL =
             "https://personal.neu.edu.cn/portal/personal/frontend/data/detail"
         private const val BALANCE_KEY = "card.balance"
-        // 抓包(2026-09)中门户走 CAS 的 service 参数;服务端若调整以实际 302 的 Location 为准
-        private const val CAS_SERVICE_URL =
-            "https://pass.neu.edu.cn/tpass/login?service=https%3A%2F%2Fpersonal.neu.edu.cn%2F"
+        // 门户自己的 CAS 入口:ticket 消费端点是 cas_login/1,service 由服务端拼
+        private const val CAS_LOGIN_ENTRY_URL =
+            "https://personal.neu.edu.cn/portal/manage/common/cas_login/1?to_bind=0&redirect=https%3A%2F%2Fpersonal.neu.edu.cn%2Fportal"
+        // SESS_ID 由 /portal/ 页面签发,兑票后需预热一发
+        private const val PORTAL_HOME_URL = "https://personal.neu.edu.cn/portal/"
         private const val PORTAL_HOST = "personal.neu.edu.cn"
         private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36"
     }
@@ -86,15 +90,23 @@ class PortalClient(
         return fetchCardBalance()
     }
 
-    /** 靠共享 CookieJar 里的 CASTGC 走 CAS service 兑票,最终落在 personal.neu.edu.cn 即算建立 */
+    /**
+     * 靠共享 CookieJar 里的 CASTGC 走门户自己的 SSO 入口兑票:
+     * cas_login/1 → 302 tpass/login?service=… → 302 cas_login/1?…&ticket=ST
+     * → 下发 CK_LC/CK_VL → 落回 /portal;SESS_ID 由 /portal/ 签发,补一发预热。
+     */
     private fun establishViaCas(): Boolean {
         val response = followClient.newCall(
-            Request.Builder().url(CAS_SERVICE_URL).header("User-Agent", USER_AGENT).get().build()
+            Request.Builder().url(CAS_LOGIN_ENTRY_URL).header("User-Agent", USER_AGENT).get().build()
         ).execute()
         val landed = response.request.url
         response.close()
         Log.d(TAG, "CAS兑票落地: $landed")
-        return landed.host == PORTAL_HOST
+        if (landed.host != PORTAL_HOST) return false
+        followClient.newCall(
+            Request.Builder().url(PORTAL_HOME_URL).header("User-Agent", USER_AGENT).get().build()
+        ).execute().close()
+        return true
     }
 
     /** 返回 card.balance 的数值(如 "50.33");未登录/接口报错/结构变化返回 null */

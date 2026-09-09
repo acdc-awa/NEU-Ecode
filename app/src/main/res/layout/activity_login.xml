@@ -1,19 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="?android:colorBackground"
+    android:orientation="vertical">
+
+    <!-- 登录页不再是裸全屏 WebView:顶部工具条 + 加载进度条做一层包装 -->
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbarLogin"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        app:navigationContentDescription="@string/login_close"
+        app:navigationIcon="@drawable/ic_close"
+        app:navigationIconTint="@color/md_theme_on_surface_variant"
+        app:title="@string/login_toolbar_title"
+        app:titleTextColor="@color/md_theme_on_surface" />
+
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/progressLogin"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:indeterminate="false"
+        android:max="100"
+        android:progress="0"
+        android:visibility="gone" />
 
     <WebView
         android:id="@+id/webView"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="0dp"
+        android:layout_weight="1" />
 
     <!-- 兑票落地后到切屏之间的过渡提示 -->
     <TextView
         android:id="@+id/tvLoginStatus"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
         android:layout_margin="24dp"
         android:background="#CC1B5E20"
         android:gravity="center"
@@ -23,4 +46,4 @@
         android:textSize="14sp"
         android:visibility="gone" />
 
-</FrameLayout>
+</LinearLayout>

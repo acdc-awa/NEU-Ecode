@@ -4,6 +4,7 @@ import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -62,20 +63,26 @@ class PortalClient(
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    override fun fetchBalance(): String? {
+    override fun fetchBalance(): BalanceResult {
         return try {
-            fetchCardBalance() ?: establishSessionAndFetch()
+            fetchCardBalance()?.let { return BalanceResult.Success(it) }
+            establishSessionAndFetch()
+        } catch (e: IOException) {
+            Log.w(TAG, "门户网络不可达", e)
+            BalanceResult.NetworkUnreachable
         } catch (e: Exception) {
             Log.e(TAG, "门户余额获取异常", e)
-            null
+            BalanceResult.Failed
         }
     }
 
-    private fun establishSessionAndFetch(): String? {
+    private fun establishSessionAndFetch(): BalanceResult {
         Log.i(TAG, "门户会话无效,经cas_login入口兑票建立会话(靠CASTGC静默换票)")
-        if (establishViaCas()) return fetchCardBalance()
-        Log.w(TAG, "CAS兑票未落到门户(CASTGC可能失效),无法静默恢复,需重新登录")
-        return null
+        if (establishViaCas()) {
+            fetchCardBalance()?.let { return BalanceResult.Success(it) }
+        }
+        Log.w(TAG, "CAS兑票未落到门户或未取到余额(CASTGC可能失效),无法静默恢复,需重新登录")
+        return BalanceResult.Failed
     }
 
     /**

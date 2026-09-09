@@ -22,6 +22,20 @@
     <string name="balance_source_ecard">一卡通网站（仅校园网可用）</string>
     <string name="balance_source_portal">门户数据（校内/校外均可用）</string>
     <string name="login_success_entering">登录成功，正在进入…</string>
+    <!-- 主界面空态 / 登录流程 -->
+    <string name="login_action">去登录</string>
+    <string name="login_close">关闭</string>
+    <string name="login_toolbar_title">统一身份认证登录</string>
+    <string name="settings_login">登录</string>
+    <string name="not_logged_in_placeholder">未登录，暂无二维码</string>
+    <string name="status_not_logged_in">未登录</string>
+    <string name="fetching_qr">正在获取二维码…</string>
+    <string name="qr_valid_until">二维码有效 · 有效期至 %1$s</string>
+    <string name="qr_valid_no_expiry">二维码有效</string>
+    <string name="login_expired">登录已过期，请重新登录</string>
+    <string name="network_retry">网络异常，重试中…</string>
+    <string name="balance_ecard_unreachable">一卡通不可达（可能不在校园网），可在设置中切换门户数据源</string>
+    <string name="balance_network_unreachable">网络不可达，请检查网络后重试</string>
     <string name="settings_credit">作者：acdc \nqq:2743984989</string>
     <!-- 在线更新 -->
     <string name="update_source_label">下载源</string>

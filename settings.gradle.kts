@@ -16,4 +16,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "Ecode"
 include(":app")
-include(":webview-demo")

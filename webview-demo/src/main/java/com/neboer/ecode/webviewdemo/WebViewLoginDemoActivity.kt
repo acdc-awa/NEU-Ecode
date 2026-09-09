@@ -30,18 +30,21 @@ import java.util.concurrent.TimeUnit
 
 /**
  * WebView 登录 CAS 测试 demo:
- * 1. 拉起 WebView 加载 CAS 登录页(service 指向 ecode 的 SSO 兑换接口)
- * 2. 用户在 WebView 里正常登录(账密/短信验证/WebVPN 重定向全部交给真实浏览器行为)
+ * 1. 拉起 WebView 加载主端点 CAS 登录页(校外会自动重定向到 webvpn,无需特判,跟随即可)
+ * 2. 用户在 WebView 里正常登录(账密/短信验证全部交给真实浏览器行为)
  * 3. CAS 302 到 service 兑换 ticket,ecode 种下 XSRF-TOKEN —— 这就是应用会话
  *    (实测确认:ecode API 只认 XSRF-TOKEN;TGC/CASTGC 仅是 CAS 的 SSO 凭证,作诊断展示)
- * 4. 检测到会话后切到结果页,自动请求 /ecode/api/qr-code 渲染真实二维码 + 有效期
+ * 4. 检测到会话后切到结果页,自动请求 /ecode/api/qr-code 渲染真实二维码,
+ *    按 qrInvalidTime 倒计时并在到期时自动刷新
+ * 5. 所有 OkHttp 请求经 WebViewCookieJar 与 WebView 共享 cookie:
+ *    ecard 余额链路靠 CASTGC 静默换票,无需账密
  */
 class WebViewLoginDemoActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "WebViewLoginDemo"
 
-        /** 校园网直连入口:TPass CAS 登录页,service 指向 ecode 的 SSO 兑换接口 */
+        /** 登录入口:TPass CAS 登录页,service 指向 ecode 的 SSO 兑换接口 */
         private const val CAS_LOGIN_URL =
             "https://pass.neu.edu.cn/tpass/login?service=https%3A%2F%2Fecode.neu.edu.cn%2Fecode%2Fapi%2Fsso%2Flogin"
         private const val CAS_ORIGIN = "https://pass.neu.edu.cn"
@@ -49,6 +52,7 @@ class WebViewLoginDemoActivity : AppCompatActivity() {
         private const val WEBVPN_HOST = "https://webvpn.neu.edu.cn"
         private const val QR_API_URL = "https://ecode.neu.edu.cn/ecode/api/qr-code"
         private const val POLL_INTERVAL_MS = 800L
+        private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36"
     }
 
     private lateinit var webView: WebView
@@ -58,11 +62,19 @@ class WebViewLoginDemoActivity : AppCompatActivity() {
     private lateinit var tvQrInfo: TextView
     private lateinit var ivQRCode: ImageView
     private lateinit var btnVerify: Button
+    private lateinit var btnBalance: Button
     private lateinit var loginContainer: View
     private lateinit var successContainer: ScrollView
 
+    /** 与 WebView 共享 cookie 的请求客户端 */
+    private lateinit var apiClient: OkHttpClient
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private var loginPhase = false
+
+    private var refreshRunnable: Runnable? = null
+    private var countdownRunnable: Runnable? = null
+    private var qrExpireAtMs = 0L
 
     /** 登录期间轮询 cookie:短信验证等页面里的 AJAX 种下的 cookie 也能捕捉到 */
     private val pollRunnable = object : Runnable {
@@ -78,6 +90,12 @@ class WebViewLoginDemoActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_webview_login_demo)
 
+        apiClient = OkHttpClient.Builder()
+            .cookieJar(WebViewCookieJar())
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
+
         webView = findViewById(R.id.webView)
         etUrl = findViewById(R.id.etUrl)
         tvStatus = findViewById(R.id.tvStatus)
@@ -85,6 +103,7 @@ class WebViewLoginDemoActivity : AppCompatActivity() {
         tvQrInfo = findViewById(R.id.tvQrInfo)
         ivQRCode = findViewById(R.id.ivQRCode)
         btnVerify = findViewById(R.id.btnVerify)
+        btnBalance = findViewById(R.id.btnBalance)
         loginContainer = findViewById(R.id.loginContainer)
         successContainer = findViewById(R.id.successContainer)
         etUrl.setText(CAS_LOGIN_URL)
@@ -116,6 +135,7 @@ class WebViewLoginDemoActivity : AppCompatActivity() {
             if (!checkLoginSuccess()) onLoginSuccess("手动标记")
         }
         btnVerify.setOnClickListener { verifySession() }
+        btnBalance.setOnClickListener { testBalance() }
         findViewById<Button>(R.id.btnRestart).setOnClickListener { restart() }
     }
 
@@ -128,6 +148,7 @@ class WebViewLoginDemoActivity : AppCompatActivity() {
         if (!url.startsWith("http")) url = "https://$url"
 
         loginPhase = true
+        cancelQrTimers()
         loginContainer.visibility = View.VISIBLE
         successContainer.visibility = View.GONE
         tvResult.text = ""
@@ -208,43 +229,28 @@ class WebViewLoginDemoActivity : AppCompatActivity() {
         verifySession()
     }
 
-    /** 用 WebView 拦截到的会话 cookie 实测受保护 API,并渲染二维码 */
+    /**
+     * 用 WebView 会话实测 qr-code 接口。cookie 由 WebViewCookieJar 按域自动供给,
+     * 校外时主端点重定向到 webvpn 也无需特判(已实测,跟随重定向即可)。
+     */
     private fun verifySession() {
-        val finalUrl = webView.url ?: ""
-        val viaWebvpn = finalUrl.startsWith(WEBVPN_HOST)
-        // WebVPN 是路径包裹型网关:https://webvpn.neu.edu.cn/http(s)://真实地址
-        val requestUrl = if (viaWebvpn) "$WEBVPN_HOST/$QR_API_URL" else QR_API_URL
-
         btnVerify.isEnabled = false
         tvQrInfo.visibility = View.GONE
         ivQRCode.visibility = View.GONE
-        appendResult("\n═══ 验证会话 ═══\n请求: $requestUrl\n")
+        appendResult("\n═══ 请求二维码 ═══\nGET $QR_API_URL(cookie由CookieManager按域供给,重定向自动跟随)\n")
 
         Thread {
             val outcome = try {
-                val cookieHeader = CookieManager.getInstance().getCookie(requestUrl) ?: ""
                 val xsrf = cookieMap("$ECODE_ORIGIN/")["XSRF-TOKEN"]
-                    ?: cookieMap(requestUrl)["XSRF-TOKEN"]
-                    ?: ""
-                Log.d(TAG, "verify: cookieHeader=${cookieHeader.take(200)}, xsrf=${xsrf.take(16)}")
-                val builder = Request.Builder().url(requestUrl)
-                    .header("Cookie", cookieHeader)
+                    ?: cookieMap(QR_API_URL)["XSRF-TOKEN"] ?: ""
+                val request = Request.Builder().url(QR_API_URL)
                     .header("X-XSRF-TOKEN", xsrf)
                     .header("XSRF-TOKEN", xsrf)
-                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+                    .header("User-Agent", USER_AGENT)
                     .header("Accept", "application/json, text/plain, */*")
-                if (viaWebvpn) {
-                    builder.header("Referer", finalUrl)
-                } else {
-                    builder.header("Referer", "https://ecode.neu.edu.cn/ecode/")
-                        .header("Origin", "https://ecode.neu.edu.cn")
-                }
-                val resp = OkHttpClient.Builder()
-                    .connectTimeout(15, TimeUnit.SECONDS)
-                    .readTimeout(15, TimeUnit.SECONDS)
-                    .build()
-                    .newCall(builder.get().build()).execute()
-                resp.use { it.code to (it.body?.string() ?: "") }
+                    .header("Referer", "https://ecode.neu.edu.cn/ecode/")
+                    .get().build()
+                apiClient.newCall(request).execute().use { it.code to (it.body?.string() ?: "") }
             } catch (e: Exception) {
                 Log.e(TAG, "verify失败", e)
                 -1 to "请求异常: ${e.message}"
@@ -252,34 +258,79 @@ class WebViewLoginDemoActivity : AppCompatActivity() {
 
             // 工作线程里解析响应并生成二维码位图,再回主线程刷新 UI
             val (code, body) = outcome
-            val qrBitmap = if (code == 200) parseQrAndRender(body) else null
-            val summary = if (code == 200) summarizeQr(body) else body.take(1500)
+            val payload = if (code == 200) parseQr(body) else null
+            val bitmap = payload?.qrCode?.let { renderQr(it) }
 
             runOnUiThread {
                 btnVerify.isEnabled = true
                 appendResult("HTTP $code\n")
-                if (qrBitmap != null) {
-                    ivQRCode.setImageBitmap(qrBitmap)
+                if (payload != null && bitmap != null) {
+                    ivQRCode.setImageBitmap(bitmap)
                     ivQRCode.visibility = View.VISIBLE
                     tvQrInfo.visibility = View.VISIBLE
+                    appendResult("${payload.summary}\n")
+                    scheduleQrAutoRefresh(payload.invalidMs)
+                } else {
+                    appendResult("${body.take(1500)}\n")
                 }
-                appendResult("$summary\n")
             }
         }.start()
     }
 
-    /** 解析 data[0].attributes.qrCode 生成位图;失败返回 null */
-    private fun parseQrAndRender(body: String): Bitmap? {
-        val qr = try {
+    /** 余额链路:不带账密,只靠 CASTGC 静默换票 */
+    private fun testBalance() {
+        btnBalance.isEnabled = false
+        appendResult("\n═══ 余额验证(ecard,纯TGC静默换票) ═══\n")
+        Thread {
+            val result = try {
+                EcardTester(apiClient).fetchBalance()
+            } catch (e: Exception) {
+                Log.e(TAG, "余额验证异常", e)
+                "异常: ${e.message}"
+            }
+            runOnUiThread {
+                btnBalance.isEnabled = true
+                appendResult("$result\n")
+            }
+        }.start()
+    }
+
+    private class QrPayload(
+        val qrCode: String?,
+        val createMs: Long,
+        val invalidMs: Long,
+        val summary: String,
+    )
+
+    /** 解析 data[0].attributes:qrCode / createTime / qrInvalidTime(unix秒级时间戳) */
+    private fun parseQr(body: String): QrPayload? {
+        val attrs = try {
             JSONObject(body).getJSONArray("data").getJSONObject(0)
-                .getJSONObject("attributes").getString("qrCode")
+                .getJSONObject("attributes")
         } catch (e: Exception) {
-            Log.e(TAG, "qrCode解析失败", e)
+            Log.e(TAG, "attributes解析失败", e)
             return null
         }
+        val qr = attrs.optString("qrCode").ifEmpty { null }
+        val create = attrs.optLong("createTime")
+        val invalid = attrs.optLong("qrInvalidTime")
+        val summary = "createTime:    ${fmtUnix(create)}\n" +
+            "qrInvalidTime: ${fmtUnix(invalid)}"
+        return QrPayload(qr, toMs(create), toMs(invalid), summary)
+    }
+
+    private fun toMs(ts: Long): Long = if (ts > 10_000_000_000L) ts else ts * 1000
+
+    private fun fmtUnix(ts: Long): String {
+        if (ts <= 0) return "-"
+        return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA).format(Date(toMs(ts)))
+    }
+
+    /** 生成二维码位图;失败返回 null */
+    private fun renderQr(content: String): Bitmap? {
         return try {
             val size = 512
-            val bitMatrix = QRCodeWriter().encode(qr, BarcodeFormat.QR_CODE, size, size)
+            val bitMatrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size)
             Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565).also { bitmap ->
                 for (x in 0 until size) {
                     for (y in 0 until size) {
@@ -293,31 +344,39 @@ class WebViewLoginDemoActivity : AppCompatActivity() {
         }
     }
 
-    /** 汇总有效期:attributes.createTime / qrInvaildTime 是 unix 时间戳(自动识别秒/毫秒) */
-    private fun summarizeQr(body: String): String {
-        return try {
-            val attrs = JSONObject(body).getJSONArray("data").getJSONObject(0).getJSONObject("attributes")
-            val create = attrs.optLong("createTime")
-            val invalid = attrs.optLong("qrInvalidTime")
-            val sb = StringBuilder("二维码已生成 ✓\n")
-            sb.append("createTime:    ${fmtUnix(create)}\n")
-            sb.append("qrInvalidTime: ${fmtUnix(invalid)}")
-            if (create > 0 && invalid > create) {
-                val unit = if (invalid > 10_000_000_000L) 1000L else 1L
-                val now = System.currentTimeMillis() / 1000 * 1000
-                val remainSec = (invalid * unit - now) / 1000
-                sb.append("(剩余 ${remainSec} 秒)")
-            }
-            sb.toString()
-        } catch (e: Exception) {
-            "响应体(未解析出attributes): ${body.take(800)}"
+    /** 按 qrInvalidTime 倒计时,到期自动重新拉取二维码 */
+    private fun scheduleQrAutoRefresh(invalidMs: Long) {
+        cancelQrTimers()
+        if (invalidMs <= System.currentTimeMillis()) {
+            verifySession()
+            return
         }
+        qrExpireAtMs = invalidMs
+        countdownRunnable = object : Runnable {
+            override fun run() {
+                val remainSec = (qrExpireAtMs - System.currentTimeMillis()) / 1000
+                val expireText = SimpleDateFormat("HH:mm:ss", Locale.CHINA).format(Date(qrExpireAtMs))
+                tvQrInfo.text = if (remainSec > 0) {
+                    "有效期至 $expireText · 剩余 ${remainSec}s · 到期自动刷新"
+                } else {
+                    "二维码已到期,刷新中…"
+                }
+                mainHandler.postDelayed(this, 1000)
+            }
+        }
+        countdownRunnable?.let { mainHandler.post(it) }
+        refreshRunnable = Runnable { verifySession() }
+        mainHandler.postDelayed(
+            refreshRunnable!!,
+            (qrExpireAtMs - System.currentTimeMillis()).coerceAtLeast(0) + 500
+        )
     }
 
-    private fun fmtUnix(ts: Long): String {
-        if (ts <= 0) return "-"
-        val ms = if (ts > 10_000_000_000L) ts else ts * 1000
-        return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA).format(Date(ms))
+    private fun cancelQrTimers() {
+        refreshRunnable?.let { mainHandler.removeCallbacks(it) }
+        countdownRunnable?.let { mainHandler.removeCallbacks(it) }
+        refreshRunnable = null
+        countdownRunnable = null
     }
 
     private fun appendResult(text: String) {
@@ -328,6 +387,7 @@ class WebViewLoginDemoActivity : AppCompatActivity() {
     private fun restart() {
         loginPhase = false
         mainHandler.removeCallbacks(pollRunnable)
+        cancelQrTimers()
         CookieManager.getInstance().removeAllCookies(null)
         CookieManager.getInstance().flush()
         webView.clearCache(true)

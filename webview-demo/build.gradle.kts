@@ -39,4 +39,5 @@ dependencies {
     implementation(libs.appcompat)
     implementation(libs.okhttp)
     implementation(libs.zxing.core)
+    implementation(libs.jsoup)
 }

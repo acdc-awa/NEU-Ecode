@@ -112,7 +112,13 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:text="验证会话:请求 /ecode/api/qr-code" />
+                android:text="刷新二维码(/ecode/api/qr-code)" />
+
+            <Button
+                android:id="@+id/btnBalance"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="验证余额(ecard,纯TGC静默换票)" />
 
             <Button
                 android:id="@+id/btnRestart"

@@ -2,8 +2,10 @@ package com.neboer.ecode
 
 import android.animation.ObjectAnimator
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
@@ -47,7 +49,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var apiClient: EcodeApiClient
-    private lateinit var ecardClient: EcardClient
     private lateinit var portalClient: PortalClient
     private lateinit var settings: AppSettings
 
@@ -69,6 +70,8 @@ class MainActivity : AppCompatActivity() {
     private var balanceJob: Job? = null
     private var balanceSpin: ObjectAnimator? = null
     private var qrBitmap: Bitmap? = null
+    private var currentQrCode: String? = null
+    private var lastAppliedHdr: Boolean = false
     private var qrVisible: Boolean = true
     private var originalBrightness: Float = -1f
     private var lastBackPressTime: Long = 0
@@ -117,7 +120,6 @@ class MainActivity : AppCompatActivity() {
             .build()
 
         apiClient = EcodeApiClient(okHttpClient)
-        ecardClient = EcardClient(okHttpClient)
         portalClient = PortalClient(okHttpClient)
 
         tvUsername.text = getString(R.string.app_name)
@@ -133,13 +135,13 @@ class MainActivity : AppCompatActivity() {
             // 未登录空态下点卡片无意义,不进入隐藏/显示切换
             if (!loggedIn) return@setOnClickListener
             qrVisible = !qrVisible
-            settings.qrVisible = qrVisible
+            // 仅会话内切换,不持久化:下次开屏仍按设置的"开屏二维码显示"偏好
             applyQRVisibility()
             // 重新显示时立即重启刷新拉新码(隐藏时 applyQRVisibility 已停掉循环)
             if (qrVisible) startQRRefresh()
         }
 
-        qrVisible = settings.qrVisible
+        qrVisible = settings.qrShowOnLaunch
         loggedIn = WebViewCookieJar.hasEcodeSession()
         renderSessionState()
     }
@@ -176,6 +178,7 @@ class MainActivity : AppCompatActivity() {
             btnRefreshBalance.isEnabled = false
             cardBalance.isEnabled = false
             qrBitmap = null
+            currentQrCode = null
             ivQRCode.setImageBitmap(null)
             ivQRCode.visibility = View.GONE
             layoutQRPlaceholder.visibility = View.VISIBLE
@@ -201,6 +204,20 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "登录态变化: $loggedIn -> $hasSession")
             loggedIn = hasSession
             renderSessionState()
+        }
+
+        // 高亮模式可能在设置页被修改:如果 HDR 激活状态发生变化且已有二维码，重新生成位图以挂载/移除 Gainmap
+        val currentHdr = isHdrHighlightActive()
+        val savedCode = currentQrCode
+        if (loggedIn && qrVisible && savedCode != null && currentHdr != lastAppliedHdr) {
+            lastAppliedHdr = currentHdr
+            lifecycleScope.launch(Dispatchers.Default) {
+                val bitmap = generateQRBitmap(savedCode, 560)
+                withContext(Dispatchers.Main) {
+                    qrBitmap = bitmap
+                    ivQRCode.setImageBitmap(bitmap)
+                }
+            }
         }
 
         // 刷新只在前台 + 二维码可见时进行;回前台立即重启循环拉新码
@@ -238,6 +255,8 @@ class MainActivity : AppCompatActivity() {
                 when (result) {
                     is QrFetchResult.Success -> {
                         netRetryMs = NET_RETRY_BASE_MS
+                        currentQrCode = result.qrCode
+                        lastAppliedHdr = isHdrHighlightActive()
                         val bitmap = withContext(Dispatchers.Default) {
                             generateQRBitmap(result.qrCode, 560)
                         }
@@ -282,19 +301,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 启动时和点按钮时拉一次余额(数据源按设置:ecard 权威值/portal JSON);进行中重复点击忽略 */
+    /** 启动时和点按钮时拉一次余额(门户个人数据 JSON 接口);进行中重复点击忽略 */
     private fun loadBalance() {
         if (!loggedIn) return
         if (balanceJob?.isActive == true) return
-        val source: BalanceSource = when (settings.balanceSource) {
-            BalanceSourceKind.PORTAL -> portalClient
-            else -> ecardClient
-        }
         balanceJob = lifecycleScope.launch {
             setBalanceRefreshing(true)
             tvBalance.text = getString(R.string.balance_loading)
             val result = withContext(Dispatchers.IO) {
-                source.fetchBalance()
+                portalClient.fetchBalance()
             }
             setBalanceRefreshing(false)
             when (result) {
@@ -302,18 +317,14 @@ class MainActivity : AppCompatActivity() {
                     tvBalance.text = getString(R.string.balance_format, result.value)
 
                 BalanceResult.NetworkUnreachable -> {
-                    Log.w(TAG, "余额网络不可达(source=${settings.balanceSource})")
-                    val msgRes = if (settings.balanceSource == BalanceSourceKind.PORTAL) {
-                        R.string.balance_network_unreachable
-                    } else {
-                        R.string.balance_ecard_unreachable
-                    }
-                    Toast.makeText(this@MainActivity, msgRes, Toast.LENGTH_LONG).show()
+                    Log.w(TAG, "余额网络不可达")
+                    Toast.makeText(this@MainActivity, R.string.balance_network_unreachable, Toast.LENGTH_LONG)
+                        .show()
                     tvBalance.text = getString(R.string.balance_unknown)
                 }
 
                 BalanceResult.Failed -> {
-                    Log.w(TAG, "余额获取失败(source=${settings.balanceSource})")
+                    Log.w(TAG, "余额获取失败")
                     Toast.makeText(this@MainActivity, R.string.balance_refresh_failed, Toast.LENGTH_SHORT)
                         .show()
                     tvBalance.text = getString(R.string.balance_unknown)
@@ -339,14 +350,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun isHdrHighlightActive(): Boolean {
+        return settings.qrBrightnessMode == QrBrightnessMode.HDR && HdrHelper.isHdrSupported(this)
+    }
+
     private fun generateQRBitmap(content: String, size: Int): Bitmap {
         val writer = QRCodeWriter()
         val bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, size, size)
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         for (x in 0 until size) {
             for (y in 0 until size) {
-                bitmap.setPixel(x, y, if (bitMatrix[x, y]) Color.BLACK else Color.TRANSPARENT)
+                // HDR Gainmap 需基图有非零白底(Color.WHITE)才能倍增高光;
+                // 若为 TRANSPARENT, Gain 乘算仍为 0
+                bitmap.setPixel(x, y, if (bitMatrix[x, y]) Color.BLACK else Color.WHITE)
             }
+        }
+        if (isHdrHighlightActive() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            HdrHelper.attachGainmap(bitmap, bitMatrix, size)
         }
         return bitmap
     }
@@ -382,16 +402,41 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyBrightness(on: Boolean) {
         if (on && qrVisible && loggedIn) {
-            window.attributes = window.attributes.apply {
-                screenBrightness = 1.0f
+            val activeHdr = isHdrHighlightActive()
+            if (activeHdr) {
+                // HDR 局部高亮: 窗口切至 HDR 颜色模式，屏幕背光维持系统当前亮度，其余组件不刺眼
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    window.colorMode = ActivityInfo.COLOR_MODE_HDR
+                }
+                window.attributes = window.attributes.apply {
+                    screenBrightness = originalBrightness
+                }
+            } else {
+                // 传统全屏高亮或跟随系统亮度
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    window.colorMode = ActivityInfo.COLOR_MODE_DEFAULT
+                }
+                val targetBrightness = if (settings.qrBrightnessMode == QrBrightnessMode.SYSTEM) {
+                    originalBrightness
+                } else {
+                    1.0f
+                }
+                window.attributes = window.attributes.apply {
+                    screenBrightness = targetBrightness
+                }
             }
         } else {
+            // 退出前台、隐藏二维码或未登录时，还原 SDR 默认颜色模式与原本系统亮度
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                window.colorMode = ActivityInfo.COLOR_MODE_DEFAULT
+            }
             window.attributes = window.attributes.apply {
                 screenBrightness = originalBrightness
             }
         }
     }
 
+    @Suppress("MissingSuperCall")
     override fun onBackPressed() {
         when (settings.backPressMode) {
             BackPressMode.SINGLE -> finish()

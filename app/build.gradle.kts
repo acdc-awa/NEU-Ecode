@@ -80,7 +80,6 @@ dependencies {
     implementation(libs.constraintlayout)
     implementation(libs.okhttp)
     implementation(libs.zxing.core)
-    implementation(libs.jsoup)
     implementation(libs.security.crypto)
     implementation(libs.coroutines.android)
     implementation(libs.material)

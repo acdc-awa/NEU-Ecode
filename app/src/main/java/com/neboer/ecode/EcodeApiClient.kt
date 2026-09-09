@@ -6,52 +6,43 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-class EcodeApiClient(
-    private val client: OkHttpClient,
-    private val credentialManager: CredentialManager,
-    private val casAuthenticator: CasAuthenticator
-) {
+/**
+ * ecode API 客户端。会话来源 = WebViewCookieJar(CookieManager 单一存储):
+ * - XSRF-TOKEN 每次请求时从 CookieManager 读取(ecode 每个响应会轮换该 cookie,jar 自动回写)
+ * - 401 时用 CASTGC 静默续期后重试一次;续期失败(CASTGC 失效)返回 null,由 UI 引导重新登录
+ */
+class EcodeApiClient(private val client: OkHttpClient) {
+
     private val apiClient = client.newBuilder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
+
+    private val renewer = CasSessionRenewer(client)
 
     companion object {
         private const val TAG = "EcodeApi"
     }
 
     fun fetchQRCode(): String? {
-        val hasToken = credentialManager.getXSRFToken() != null
-        Log.d(TAG, "fetchQRCode开始: hasToken=$hasToken")
+        Log.d(TAG, "fetchQRCode开始: hasToken=${WebViewCookieJar.hasEcodeSession()}")
         tryFetch()?.let {
             Log.d(TAG, "fetchQRCode: 首次请求成功")
             return it
         }
 
-        Log.w(TAG, "fetchQRCode: 首次请求失败(401/token过期)，准备用存储凭据重新认证")
-        val username = credentialManager.getUsername() ?: run {
-            Log.w(TAG, "fetchQRCode: 无存储用户名，无法重新认证")
-            return null
-        }
-        val password = credentialManager.getPassword() ?: run {
-            Log.w(TAG, "fetchQRCode: 无存储密码，无法重新认证")
+        Log.w(TAG, "fetchQRCode: 首次请求失败(401/token过期),CASTGC 静默续期后重试")
+        if (!renewer.renewEcodeSession()) {
+            Log.e(TAG, "fetchQRCode: 静默续期失败(CASTGC失效),需重新登录")
             return null
         }
 
-        Log.d(TAG, "fetchQRCode: 清除旧cookies后重新认证")
-        (client.cookieJar as? PersistentCookieJar)?.clear()
-        if (!casAuthenticator.login(username, password)) {
-            Log.e(TAG, "fetchQRCode: 重新认证失败，清空凭据")
-            credentialManager.clear()
-            return null
-        }
-
-        Log.d(TAG, "fetchQRCode: 重新认证成功，重试fetch")
+        Log.d(TAG, "fetchQRCode: 续期成功,重试fetch")
         return tryFetch()
     }
 
     private fun tryFetch(): String? {
-        val xsrfToken = credentialManager.getXSRFToken()
+        val xsrfToken = readXSRFToken()
         Log.d(TAG, "tryFetch: hasToken=${xsrfToken != null}")
 
         val request = Request.Builder()
@@ -68,18 +59,7 @@ class EcodeApiClient(
         Log.d(TAG, "tryFetch: HTTP ${response.code}")
 
         if (!response.isSuccessful) {
-            Log.w(TAG, "tryFetch失败: HTTP ${response.code}")
-
-            response.headers("Set-Cookie").forEach { cookie ->
-                if (cookie.trim().startsWith("XSRF-TOKEN=", ignoreCase = true)) {
-                    val token = cookie.trim()
-                        .removePrefix("XSRF-TOKEN=")
-                        .removePrefix("xsrf-token=")
-                        .split(";")
-                        .first()
-                    credentialManager.saveXSRFToken(token)
-                }
-            }
+            Log.w(TAG, "tryFetch失败: HTTP ${response.code}(响应轮换的新XSRF-TOKEN已由jar回写)")
             return null
         }
 
@@ -101,5 +81,15 @@ class EcodeApiClient(
             Log.e(TAG, "JSON解析失败", e)
             return null
         }
+    }
+
+    /** XSRF-TOKEN 每次从 CookieManager 现读,不用缓存值 */
+    private fun readXSRFToken(): String? {
+        val raw = android.webkit.CookieManager.getInstance()
+            .getCookie("https://ecode.neu.edu.cn/") ?: return null
+        return raw.split(";")
+            .map { it.trim() }
+            .firstOrNull { it.startsWith("XSRF-TOKEN=", ignoreCase = true) }
+            ?.substringAfter('=')
     }
 }

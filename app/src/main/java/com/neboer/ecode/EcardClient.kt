@@ -10,21 +10,20 @@ import java.util.concurrent.TimeUnit
 
 /**
  * 一卡通(ecard.neu.edu.cn)自助查询客户端,获取校园卡主钱包余额。
+ * 纯内网站点且无 webvpn 路由,仅校园网内可用。
  *
  * 真实登录流程(见 .har/ecardlogin.har,浏览器单轮即成功):
  * 1. GET selflogin/login.aspx → 302 → CAS tpass/login?service=selflogin
- * 2. CAS 有 TGC 时直接 302 回 selflogin?ticket=ST-xxx;TGC 失效则返回登录表单
+ * 2. CAS 有 TGC(CASTGC,来自 WebView 登录)时直接 302 回 selflogin?ticket=ST-xxx;
+ *    TGC 失效则返回登录表单
  * 3. selflogin?ticket 返回 200 表单页,内含服务端生成的隐藏字段(username/timestamp/auid),
  *    浏览器 JS 会自动 POST /selfsearch/SSOLogin.aspx → 302 Index.aspx
- * 4. 该 POST 响应同时下发两条同名 .ASPXAUTSSM Set-Cookie(先空值删除旧值,再下发
- *    128 位正式值),浏览器按"后写覆盖先写"只保留新值,CookieJar 必须同样处理;
- *    若重复同名 cookie 被一并发出,会话被空值污染,Index.aspx 会弹回
- *    /selfsearch/login.aspx —— 此时带已有会话兜底再走一轮(新 ticket + 第二次 POST)
+ * 4. 该 POST 响应同时下发两条同名 .ASPXAUTSSM(先空值删除旧值,再下发正式值),
+ *    WebViewCookieJar(CookieManager 覆盖语义)天然正确处理;
+ *    TGC 失效时无法静默恢复,返回 null 由 UI 引导重新登录
  */
 class EcardClient(
-    private val client: OkHttpClient,
-    private val credentialManager: CredentialManager,
-    private val casAuthenticator: CasAuthenticator
+    private val client: OkHttpClient
 ) : BalanceSource {
     companion object {
         private const val TAG = "EcardClient"
@@ -70,20 +69,10 @@ class EcardClient(
     }
 
     private fun establishSessionAndFetch(): String? {
-        Log.i(TAG, "ecard会话无效,走selflogin建立会话")
+        Log.i(TAG, "ecard会话无效,走selflogin建立会话(靠CASTGC静默换票)")
         if (establishViaSelflogin()) return parseBalance(getBody(HOME_URL))
-        Log.w(TAG, "selflogin未建立会话,判定CAS会话失效,先用存储凭据重新登录刷新TGC")
-        val username = credentialManager.getUsername()
-        val password = credentialManager.getPassword()
-        if (username == null || password == null || !casAuthenticator.login(username, password)) {
-            Log.w(TAG, "CAS重新登录失败,本次放弃余额获取")
-            return null
-        }
-        if (!establishViaSelflogin()) {
-            Log.w(TAG, "CAS登录后selflogin仍未建立ecard会话")
-            return null
-        }
-        return parseBalance(getBody(HOME_URL))
+        Log.w(TAG, "selflogin未建立会话,判定CASTGC失效,无法静默恢复,需重新登录")
+        return null
     }
 
     /** 走完整 selflogin 流程;正常单轮建立会话,若仍被弹回登录页则兜底再走一轮(新一轮拿新ticket) */

@@ -49,7 +49,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var apiClient: EcodeApiClient
-    private lateinit var ecardClient: EcardClient
     private lateinit var portalClient: PortalClient
     private lateinit var settings: AppSettings
 
@@ -121,7 +120,6 @@ class MainActivity : AppCompatActivity() {
             .build()
 
         apiClient = EcodeApiClient(okHttpClient)
-        ecardClient = EcardClient(okHttpClient)
         portalClient = PortalClient(okHttpClient)
 
         tvUsername.text = getString(R.string.app_name)
@@ -137,13 +135,13 @@ class MainActivity : AppCompatActivity() {
             // 未登录空态下点卡片无意义,不进入隐藏/显示切换
             if (!loggedIn) return@setOnClickListener
             qrVisible = !qrVisible
-            settings.qrVisible = qrVisible
+            // 仅会话内切换,不持久化:下次开屏仍按设置的"开屏二维码显示"偏好
             applyQRVisibility()
             // 重新显示时立即重启刷新拉新码(隐藏时 applyQRVisibility 已停掉循环)
             if (qrVisible) startQRRefresh()
         }
 
-        qrVisible = settings.qrVisible
+        qrVisible = settings.qrShowOnLaunch
         loggedIn = WebViewCookieJar.hasEcodeSession()
         renderSessionState()
     }
@@ -303,19 +301,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 启动时和点按钮时拉一次余额(数据源按设置:ecard 权威值/portal JSON);进行中重复点击忽略 */
+    /** 启动时和点按钮时拉一次余额(门户个人数据 JSON 接口);进行中重复点击忽略 */
     private fun loadBalance() {
         if (!loggedIn) return
         if (balanceJob?.isActive == true) return
-        val source: BalanceSource = when (settings.balanceSource) {
-            BalanceSourceKind.PORTAL -> portalClient
-            else -> ecardClient
-        }
         balanceJob = lifecycleScope.launch {
             setBalanceRefreshing(true)
             tvBalance.text = getString(R.string.balance_loading)
             val result = withContext(Dispatchers.IO) {
-                source.fetchBalance()
+                portalClient.fetchBalance()
             }
             setBalanceRefreshing(false)
             when (result) {
@@ -323,18 +317,14 @@ class MainActivity : AppCompatActivity() {
                     tvBalance.text = getString(R.string.balance_format, result.value)
 
                 BalanceResult.NetworkUnreachable -> {
-                    Log.w(TAG, "余额网络不可达(source=${settings.balanceSource})")
-                    val msgRes = if (settings.balanceSource == BalanceSourceKind.PORTAL) {
-                        R.string.balance_network_unreachable
-                    } else {
-                        R.string.balance_ecard_unreachable
-                    }
-                    Toast.makeText(this@MainActivity, msgRes, Toast.LENGTH_LONG).show()
+                    Log.w(TAG, "余额网络不可达")
+                    Toast.makeText(this@MainActivity, R.string.balance_network_unreachable, Toast.LENGTH_LONG)
+                        .show()
                     tvBalance.text = getString(R.string.balance_unknown)
                 }
 
                 BalanceResult.Failed -> {
-                    Log.w(TAG, "余额获取失败(source=${settings.balanceSource})")
+                    Log.w(TAG, "余额获取失败")
                     Toast.makeText(this@MainActivity, R.string.balance_refresh_failed, Toast.LENGTH_SHORT)
                         .show()
                     tvBalance.text = getString(R.string.balance_unknown)

@@ -10,8 +10,7 @@
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Ecode"
-        android:usesCleartextTraffic="true">
+        android:theme="@style/Theme.Ecode">
 
         <!-- 主界面即启动器:未登录时显示空态,由用户主动进入登录 -->
         <activity

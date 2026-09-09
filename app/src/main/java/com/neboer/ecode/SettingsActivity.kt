@@ -3,13 +3,19 @@ package com.neboer.ecode
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.RadioGroup
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.radiobutton.MaterialRadioButton
 import com.google.android.material.textfield.MaterialAutoCompleteTextView
 import kotlinx.coroutines.Dispatchers
@@ -99,9 +105,20 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
 
-        val settings = AppSettings(this)
+        // 边到边沉浸式适配
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.rootSettingsLayout)) { view, insets ->
+            val statusBarInsets = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            val navBarInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            findViewById<View>(R.id.toolbarSettings).updatePadding(top = statusBarInsets.top)
+            view.updatePadding(bottom = navBarInsets.bottom)
+            insets
+        }
 
-        findViewById<ImageButton>(R.id.btnBack).setOnClickListener { finish() }
+        findViewById<MaterialToolbar>(R.id.toolbarSettings).setNavigationOnClickListener {
+            finish()
+        }
+
+        val settings = AppSettings(this)
 
         val radioSingle: MaterialRadioButton = findViewById(R.id.radioSingle)
         val radioDouble: MaterialRadioButton = findViewById(R.id.radioDouble)
@@ -194,6 +211,25 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
         }
+
+        // 绑定各个 [?] 极简问号说明按钮
+        findViewById<ImageButton>(R.id.btnHelpBalanceSource).setOnClickListener {
+            showHelpDialog(R.string.help_balance_source_title, R.string.help_balance_source_message)
+        }
+        findViewById<ImageButton>(R.id.btnHelpBackMode).setOnClickListener {
+            showHelpDialog(R.string.help_back_mode_title, R.string.help_back_mode_message)
+        }
+        findViewById<ImageButton>(R.id.btnHelpUpdateSource).setOnClickListener {
+            showHelpDialog(R.string.help_update_source_title, R.string.help_update_source_message)
+        }
+    }
+
+    private fun showHelpDialog(titleRes: Int, messageRes: Int) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(titleRes)
+            .setMessage(messageRes)
+            .setPositiveButton(R.string.help_action_got_it, null)
+            .show()
     }
 
     /** 用测速结果重绘下拉选项(如 "gh-proxy 源1 · 388ms")并保持当前选中项 */
@@ -218,14 +254,19 @@ class SettingsActivity : AppCompatActivity() {
         super.onResume()
         // 从"安装未知应用"授权页回来后续上安装
         ApkInstaller.resumePendingInstall(this)
-        // 登录态可能已变化(登录页返回/切换账号),账号按钮文案随之切换
+        // 登录态可能已变化(登录页返回/切换账号),账号按钮文案与状态随之切换
+        val hasSession = WebViewCookieJar.hasEcodeSession()
         btnAccount.text = getString(
-            if (WebViewCookieJar.hasEcodeSession()) {
+            if (hasSession) {
                 R.string.settings_switch_account
             } else {
                 R.string.settings_login
             }
         )
+        findViewById<TextView>(R.id.tvAccountStatus).apply {
+            text = getString(if (hasSession) R.string.account_logged_in else R.string.account_not_logged_in)
+            setTextColor(getColor(if (hasSession) R.color.status_pill_text else R.color.md_theme_on_surface_variant))
+        }
     }
 
     override fun onDestroy() {

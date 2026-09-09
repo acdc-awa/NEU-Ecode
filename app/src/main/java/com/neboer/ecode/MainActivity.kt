@@ -14,8 +14,13 @@ import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import kotlinx.coroutines.Dispatchers
@@ -24,9 +29,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
@@ -50,7 +52,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var settings: AppSettings
 
     private lateinit var tvUsername: TextView
+    private lateinit var cardStatusPill: MaterialCardView
     private lateinit var tvStatus: TextView
+    private lateinit var cardBalance: MaterialCardView
     private lateinit var tvBalance: TextView
     private lateinit var btnRefreshBalance: ImageButton
     private lateinit var ivQRCode: ImageView
@@ -58,6 +62,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvPlaceholderText: TextView
     private lateinit var btnLogin: MaterialButton
     private lateinit var cardQRCode: View
+    private lateinit var btnHelp: ImageButton
     private lateinit var btnSettings: ImageButton
 
     private var refreshJob: Job? = null
@@ -80,7 +85,9 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         tvUsername = findViewById(R.id.tvUsername)
+        cardStatusPill = findViewById(R.id.cardStatusPill)
         tvStatus = findViewById(R.id.tvStatus)
+        cardBalance = findViewById(R.id.cardBalance)
         tvBalance = findViewById(R.id.tvBalance)
         btnRefreshBalance = findViewById(R.id.btnRefreshBalance)
         ivQRCode = findViewById(R.id.ivQRCode)
@@ -88,11 +95,21 @@ class MainActivity : AppCompatActivity() {
         tvPlaceholderText = findViewById(R.id.tvPlaceholderText)
         btnLogin = findViewById(R.id.btnLogin)
         cardQRCode = findViewById(R.id.cardQRCode)
+        btnHelp = findViewById(R.id.btnHelp)
         btnSettings = findViewById(R.id.btnSettings)
 
         settings = AppSettings(this)
 
         originalBrightness = readSystemBrightness()
+
+        // 边到边沉浸式适配:为顶部 Header 注入状态栏 Padding,为根视图注入手势导航栏 Padding
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.rootLayout)) { view, insets ->
+            val statusBarInsets = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            val navBarInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            findViewById<View>(R.id.layoutHeader).updatePadding(top = statusBarInsets.top)
+            view.updatePadding(bottom = navBarInsets.bottom)
+            insets
+        }
 
         // 会话唯一来源 = CookieManager(WebView 登录种下),OkHttp 经 WebViewCookieJar 共享
         val okHttpClient = okhttp3.OkHttpClient.Builder()
@@ -106,7 +123,9 @@ class MainActivity : AppCompatActivity() {
         tvUsername.text = getString(R.string.app_name)
 
         btnRefreshBalance.setOnClickListener { loadBalance() }
+        cardBalance.setOnClickListener { loadBalance() }
         btnLogin.setOnClickListener { openLogin() }
+        btnHelp.setOnClickListener { showHelpDialog() }
         btnSettings.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
@@ -125,12 +144,23 @@ class MainActivity : AppCompatActivity() {
         renderSessionState()
     }
 
+    private fun showHelpDialog() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.help_main_title)
+            .setMessage(R.string.help_main_message)
+            .setPositiveButton(R.string.help_action_got_it, null)
+            .show()
+    }
+
     /** 按登录态渲染整个主界面:已登录 = 二维码/余额数据态;未登录 = 空态 + 去登录按钮 */
     private fun renderSessionState() {
         if (loggedIn) {
+            cardStatusPill.setCardBackgroundColor(getColor(R.color.status_pill_background))
+            tvStatus.setTextColor(getColor(R.color.status_pill_text))
             tvStatus.text = getString(R.string.fetching_qr)
             tvBalance.text = getString(R.string.balance_unknown)
             btnRefreshBalance.isEnabled = true
+            cardBalance.isEnabled = true
             applyQRVisibility()
         } else {
             refreshJob?.cancel()
@@ -139,9 +169,12 @@ class MainActivity : AppCompatActivity() {
             balanceJob = null
             balanceAutoLoaded = false
             setBalanceRefreshing(false)
+            cardStatusPill.setCardBackgroundColor(getColor(R.color.md_theme_surface_container_high))
+            tvStatus.setTextColor(getColor(R.color.md_theme_on_surface_variant))
             tvStatus.text = getString(R.string.status_not_logged_in)
             tvBalance.text = getString(R.string.balance_unknown)
             btnRefreshBalance.isEnabled = false
+            cardBalance.isEnabled = false
             qrBitmap = null
             ivQRCode.setImageBitmap(null)
             ivQRCode.visibility = View.GONE
@@ -191,15 +224,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 前台 + 二维码可见期间的刷新循环:成功后按服务端 qrInvalidTime 定下次拉取时刻
-     * (字段缺失退回 10s 兜底);网络异常退避重试;会话失效则停在空态等用户重新登录
+     * 前台 + 二维码可见期间的刷新循环:
+     * 用户要求:状态直接显示“二维码有效”,不再显示过期时钟;后台仍依据 qrInvalidTime 定下次拉取时刻
      */
     private fun startQRRefresh() {
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch {
             var netRetryMs = NET_RETRY_BASE_MS
             while (isActive) {
-                tvStatus.text = getString(R.string.fetching_qr)
                 val result = withContext(Dispatchers.IO) { apiClient.fetchQRCode() }
 
                 when (result) {
@@ -209,10 +241,16 @@ class MainActivity : AppCompatActivity() {
                             generateQRBitmap(result.qrCode, 560)
                         }
                         qrBitmap = bitmap
+
+                        // 平滑 Crossfade 更新二维码，消除生硬闪图
+                        ivQRCode.alpha = 0.6f
                         ivQRCode.setImageBitmap(bitmap)
-                        tvStatus.text = result.invalidAtMs?.let {
-                            getString(R.string.qr_valid_until, formatClock(it))
-                        } ?: getString(R.string.qr_valid_no_expiry)
+                        ivQRCode.animate().alpha(1.0f).setDuration(200L).start()
+
+                        // 直接显示“二维码有效”，简洁纯粹
+                        cardStatusPill.setCardBackgroundColor(getColor(R.color.status_pill_background))
+                        tvStatus.setTextColor(getColor(R.color.status_pill_text))
+                        tvStatus.text = getString(R.string.qr_valid_no_expiry)
 
                         val nextDelay = result.invalidAtMs
                             ?.let {
@@ -243,9 +281,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun formatClock(ms: Long): String =
-        SimpleDateFormat("HH:mm:ss", Locale.CHINA).format(Date(ms))
-
     /** 启动时和点按钮时拉一次余额(数据源按设置:ecard 权威值/portal JSON);进行中重复点击忽略 */
     private fun loadBalance() {
         if (!loggedIn) return
@@ -256,6 +291,7 @@ class MainActivity : AppCompatActivity() {
         }
         balanceJob = lifecycleScope.launch {
             setBalanceRefreshing(true)
+            tvBalance.text = getString(R.string.balance_loading)
             val result = withContext(Dispatchers.IO) {
                 source.fetchBalance()
             }
@@ -272,12 +308,14 @@ class MainActivity : AppCompatActivity() {
                         R.string.balance_ecard_unreachable
                     }
                     Toast.makeText(this@MainActivity, msgRes, Toast.LENGTH_LONG).show()
+                    tvBalance.text = getString(R.string.balance_unknown)
                 }
 
                 BalanceResult.Failed -> {
                     Log.w(TAG, "余额获取失败(source=${settings.balanceSource})")
                     Toast.makeText(this@MainActivity, R.string.balance_refresh_failed, Toast.LENGTH_SHORT)
                         .show()
+                    tvBalance.text = getString(R.string.balance_unknown)
                 }
             }
         }
@@ -285,6 +323,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setBalanceRefreshing(refreshing: Boolean) {
         btnRefreshBalance.isEnabled = !refreshing && loggedIn
+        cardBalance.isEnabled = !refreshing && loggedIn
         if (refreshing) {
             balanceSpin = ObjectAnimator.ofFloat(btnRefreshBalance, View.ROTATION, 0f, 360f).apply {
                 duration = 1_000L

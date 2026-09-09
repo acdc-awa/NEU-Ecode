@@ -6,10 +6,19 @@
     <color name="md_theme_on_primary_container">#D6E4F0</color>
     <color name="md_theme_secondary">#BBC7DB</color>
     <color name="md_theme_on_secondary">#253140</color>
-    <color name="md_theme_background">#1C1B1F</color>
+    <color name="md_theme_background">#121214</color>
     <color name="md_theme_on_background">#E6E1E5</color>
-    <color name="md_theme_surface">#1C1B1F</color>
+    <color name="md_theme_surface">#1E1F24</color>
     <color name="md_theme_on_surface">#E6E1E5</color>
+    <color name="md_theme_surface_container">#25242A</color>
+    <color name="md_theme_surface_container_high">#2F3138</color>
     <color name="md_theme_on_surface_variant">#CAC4D0</color>
-    <color name="md_theme_outline">#938F99</color>
+    <color name="md_theme_outline">#49454F</color>
+    <color name="md_theme_outline_variant">#383A42</color>
+
+    <!-- 状态指示与扫码专属配色:保持内部白底保障老式扫码头秒识,外部深灰卡片护眼 -->
+    <color name="qr_canvas_background">#FFFFFF</color>
+    <color name="status_pill_background">#1B3B2B</color>
+    <color name="status_pill_text">#81C784</color>
+    <color name="status_pill_dot">#66BB6A</color>
 </resources>

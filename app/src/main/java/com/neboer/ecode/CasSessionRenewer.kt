@@ -8,7 +8,8 @@ import java.util.concurrent.TimeUnit
 /**
  * CAS 会话静默续期:不带账密,只靠 CookieManager 里的 CASTGC(WebView 登录后长期有效)
  * 重走 service=ecode 的兑票链,刷新 ecode 的 XSRF-TOKEN 应用会话。
- * CASTGC 失效时返回 false,由 UI 层引导用户重新走 WebView 登录。
+ * CASTGC 失效时返回 false,由 UI 层引导用户重新走 WebView 登录;
+ * 网络异常(IOException)不吞,向上抛出由调用方归为 NetworkError 处理。
  */
 class CasSessionRenewer(private val client: OkHttpClient) {
 

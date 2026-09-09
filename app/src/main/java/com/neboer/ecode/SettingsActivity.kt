@@ -48,6 +48,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var tvProgress: TextView
     private lateinit var btnUpdateAction: MaterialButton
     private lateinit var ddlUpdateSource: MaterialAutoCompleteTextView
+    private lateinit var btnAccount: MaterialButton
 
     /** 最近一次测速结果(prefix → 纳秒,失败为 Long.MAX_VALUE) */
     private var sourceLatencies: Map<String, Long> = emptyMap()
@@ -114,13 +115,14 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
-        findViewById<MaterialButton>(R.id.btnSwitchAccount).setOnClickListener {
-            // 会话在 CookieManager(WebView 登录种下),全清后回登录页重登
-            WebViewCookieJar.clearAll()
-            val intent = Intent(this, LoginActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        // 账号动作:已登录=切换账号(先清会话);未登录=首次登录。都进入 WebView 登录页,
+        // 成功后由登录页 CLEAR_TOP 回主界面,设置页随之出栈
+        btnAccount = findViewById(R.id.btnSwitchAccount)
+        btnAccount.setOnClickListener {
+            if (WebViewCookieJar.hasEcodeSession()) {
+                WebViewCookieJar.clearAll()
             }
-            startActivity(intent)
+            startActivity(Intent(this, LoginActivity::class.java))
         }
 
         // 余额数据源:ecard 权威值(仅校园网) / portal JSON(公网可达,数值可能不同步)
@@ -216,6 +218,14 @@ class SettingsActivity : AppCompatActivity() {
         super.onResume()
         // 从"安装未知应用"授权页回来后续上安装
         ApkInstaller.resumePendingInstall(this)
+        // 登录态可能已变化(登录页返回/切换账号),账号按钮文案随之切换
+        btnAccount.text = getString(
+            if (WebViewCookieJar.hasEcodeSession()) {
+                R.string.settings_switch_account
+            } else {
+                R.string.settings_login
+            }
+        )
     }
 
     override fun onDestroy() {

@@ -6,6 +6,7 @@ import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -39,12 +40,13 @@ class EcardClient(
     private val noRedirectClient = client.newBuilder()
         .followRedirects(false)
         .followSslRedirects(false)
-        .connectTimeout(15, TimeUnit.SECONDS)
+        // 纯内网站点,校外访问表现为连接超时;connect 缩短到 5s 让不可达尽快暴露
+        .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
     private val followClient = client.newBuilder()
-        .connectTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
@@ -58,21 +60,27 @@ class EcardClient(
         FAILED
     }
 
-    /** 返回主钱包余额(如 "10.89"),失败返回 null。不抛异常,不改变凭据/二维码流程的生命周期。 */
-    override fun fetchBalance(): String? {
+    /** 返回主钱包余额;IOException 归为 NetworkUnreachable(校外不可达的典型表现),其余异常归为 Failed */
+    override fun fetchBalance(): BalanceResult {
         return try {
-            parseBalance(getBody(HOME_URL)) ?: establishSessionAndFetch()
+            parseBalance(getBody(HOME_URL))?.let { return BalanceResult.Success(it) }
+            establishSessionAndFetch()
+        } catch (e: IOException) {
+            Log.w(TAG, "ecard网络不可达(校外或断网)", e)
+            BalanceResult.NetworkUnreachable
         } catch (e: Exception) {
             Log.e(TAG, "余额获取异常", e)
-            null
+            BalanceResult.Failed
         }
     }
 
-    private fun establishSessionAndFetch(): String? {
+    private fun establishSessionAndFetch(): BalanceResult {
         Log.i(TAG, "ecard会话无效,走selflogin建立会话(靠CASTGC静默换票)")
-        if (establishViaSelflogin()) return parseBalance(getBody(HOME_URL))
-        Log.w(TAG, "selflogin未建立会话,判定CASTGC失效,无法静默恢复,需重新登录")
-        return null
+        if (establishViaSelflogin()) {
+            parseBalance(getBody(HOME_URL))?.let { return BalanceResult.Success(it) }
+        }
+        Log.w(TAG, "selflogin未建立会话或未解析到余额,判定CASTGC失效,无法静默恢复,需重新登录")
+        return BalanceResult.Failed
     }
 
     /** 走完整 selflogin 流程;正常单轮建立会话,若仍被弹回登录页则兜底再走一轮(新一轮拿新ticket) */

@@ -13,9 +13,9 @@
         android:theme="@style/Theme.Ecode"
         android:usesCleartextTraffic="true">
 
+        <!-- 主界面即启动器:未登录时显示空态,由用户主动进入登录 -->
         <activity
-            android:name=".LoginActivity"
-            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:name=".MainActivity"
             android:exported="true"
             android:screenOrientation="portrait">
             <intent-filter>
@@ -25,7 +25,8 @@
         </activity>
 
         <activity
-            android:name=".MainActivity"
+            android:name=".LoginActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false"
             android:screenOrientation="portrait" />
 

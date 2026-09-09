@@ -111,7 +111,7 @@
                     android:orientation="vertical"
                     android:padding="16dp">
 
-                    <!-- 余额数据源行:带 [?] 问号按钮 -->
+                    <!-- 二维码高亮方式行:带 [?] 问号按钮 -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -121,13 +121,13 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="@string/settings_balance_source"
+                            android:text="@string/settings_qr_brightness_mode"
                             android:textColor="?attr/colorOnSurface"
                             android:textSize="14sp"
                             android:textStyle="bold" />
 
                         <ImageButton
-                            android:id="@+id/btnHelpBalanceSource"
+                            android:id="@+id/btnHelpQrBrightness"
                             android:layout_width="28dp"
                             android:layout_height="28dp"
                             android:layout_marginStart="4dp"
@@ -146,7 +146,55 @@
                         android:layout_marginBottom="16dp">
 
                         <com.google.android.material.textfield.MaterialAutoCompleteTextView
-                            android:id="@+id/ddlBalanceSource"
+                            android:id="@+id/ddlQrBrightness"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="none"
+                            android:textSize="13sp" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginBottom="16dp"
+                        android:background="?attr/colorOutlineVariant" />
+
+                    <!-- 开屏二维码显示行:带 [?] 问号按钮 -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/settings_qr_launch_visibility"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <ImageButton
+                            android:id="@+id/btnHelpQrLaunch"
+                            android:layout_width="28dp"
+                            android:layout_height="28dp"
+                            android:layout_marginStart="4dp"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:contentDescription="@string/help_icon_desc"
+                            android:padding="4dp"
+                            android:src="@drawable/ic_help_outline"
+                            app:tint="?attr/colorOnSurfaceVariant" />
+                    </LinearLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:layout_marginBottom="16dp">
+
+                        <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                            android:id="@+id/ddlQrLaunchVisibility"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:inputType="none"

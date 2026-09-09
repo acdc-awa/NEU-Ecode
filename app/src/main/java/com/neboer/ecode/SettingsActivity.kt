@@ -142,21 +142,40 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(Intent(this, LoginActivity::class.java))
         }
 
-        // 余额数据源:ecard 权威值(仅校园网) / portal JSON(公网可达,数值可能不同步)
-        val ddlBalanceSource: MaterialAutoCompleteTextView = findViewById(R.id.ddlBalanceSource)
-        val balanceLabels = listOf(
-            getString(R.string.balance_source_ecard),
-            getString(R.string.balance_source_portal),
+        // 二维码高亮方式: 全屏最高亮度(默认,传统) / HDR局部高亮(实验性) / 跟随系统亮度
+        val ddlQrBrightness: MaterialAutoCompleteTextView = findViewById(R.id.ddlQrBrightness)
+        val qrBrightnessLabels = listOf(
+            getString(R.string.qr_brightness_full),
+            getString(R.string.qr_brightness_hdr),
+            getString(R.string.qr_brightness_system),
         )
-        ddlBalanceSource.setSimpleItems(balanceLabels.toTypedArray())
-        ddlBalanceSource.setText(
-            if (settings.balanceSource == BalanceSourceKind.PORTAL) balanceLabels[1] else balanceLabels[0],
+        val qrBrightnessModes = listOf(
+            QrBrightnessMode.FULL,
+            QrBrightnessMode.HDR,
+            QrBrightnessMode.SYSTEM,
+        )
+        ddlQrBrightness.setSimpleItems(qrBrightnessLabels.toTypedArray())
+        val selectedIndex = qrBrightnessModes.indexOf(settings.qrBrightnessMode).coerceAtLeast(0)
+        ddlQrBrightness.setText(qrBrightnessLabels[selectedIndex], false)
+        ddlQrBrightness.setOnItemClickListener { _, _, position, _ ->
+            settings.qrBrightnessMode = qrBrightnessModes[position]
+            Log.i(TAG, "二维码高亮方式切换为: ${qrBrightnessLabels[position]}")
+        }
+
+        // 开屏二维码显示: 打开应用时直接显示还是先隐藏(会话内点卡片切换不持久化,开屏仍按此偏好)
+        val ddlQrLaunch: MaterialAutoCompleteTextView = findViewById(R.id.ddlQrLaunchVisibility)
+        val qrLaunchLabels = listOf(
+            getString(R.string.qr_launch_show),
+            getString(R.string.qr_launch_hide),
+        )
+        ddlQrLaunch.setSimpleItems(qrLaunchLabels.toTypedArray())
+        ddlQrLaunch.setText(
+            if (settings.qrShowOnLaunch) qrLaunchLabels[0] else qrLaunchLabels[1],
             false
         )
-        ddlBalanceSource.setOnItemClickListener { _, _, position, _ ->
-            settings.balanceSource =
-                if (position == 1) BalanceSourceKind.PORTAL else BalanceSourceKind.ECARD
-            Log.i(TAG, "余额数据源切换为: ${balanceLabels[position]}")
+        ddlQrLaunch.setOnItemClickListener { _, _, position, _ ->
+            settings.qrShowOnLaunch = position == 0
+            Log.i(TAG, "开屏二维码显示切换为: ${qrLaunchLabels[position]}")
         }
 
         currentVersion = try {
@@ -213,8 +232,11 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         // 绑定各个 [?] 极简问号说明按钮
-        findViewById<ImageButton>(R.id.btnHelpBalanceSource).setOnClickListener {
-            showHelpDialog(R.string.help_balance_source_title, R.string.help_balance_source_message)
+        findViewById<ImageButton>(R.id.btnHelpQrBrightness).setOnClickListener {
+            showHelpDialog(R.string.help_qr_brightness_title, R.string.help_qr_brightness_message)
+        }
+        findViewById<ImageButton>(R.id.btnHelpQrLaunch).setOnClickListener {
+            showHelpDialog(R.string.help_qr_launch_title, R.string.help_qr_launch_message)
         }
         findViewById<ImageButton>(R.id.btnHelpBackMode).setOnClickListener {
             showHelpDialog(R.string.help_back_mode_title, R.string.help_back_mode_message)

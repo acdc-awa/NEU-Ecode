@@ -13,6 +13,13 @@
     <string name="account_not_logged_in">未登录</string>
 
     <string name="settings_navigation_section">偏好设置</string>
+    <string name="settings_qr_brightness_mode">二维码高亮方式</string>
+    <string name="qr_brightness_full">全屏最高亮度（传统）</string>
+    <string name="qr_brightness_hdr">HDR 局部高亮（实验性）</string>
+    <string name="qr_brightness_system">跟随系统亮度</string>
+    <string name="settings_qr_launch_visibility">开屏二维码显示</string>
+    <string name="qr_launch_show">打开应用时直接显示</string>
+    <string name="qr_launch_hide">打开应用时先隐藏</string>
     <string name="settings_back_mode">返回退出方式</string>
     <string name="settings_back_single">单次退出</string>
     <string name="settings_back_double">双击防误触退出</string>
@@ -38,10 +45,6 @@
     <string name="balance_loading">¥ 加载中</string>
     <string name="refresh_balance">刷新余额</string>
     <string name="balance_refresh_failed">余额刷新失败，请稍后重试</string>
-    <string name="settings_balance_source">余额数据源</string>
-    <string name="balance_source_ecard">校园卡一卡通网站</string>
-    <string name="balance_source_portal">智慧东大门户接口</string>
-    <string name="balance_ecard_unreachable">一卡通不可达（可能不在校园网），可在设置中切换为门户数据源</string>
     <string name="balance_network_unreachable">网络不可达，请检查网络后重试</string>
 
     <!-- 登录流程 -->
@@ -72,12 +75,15 @@
     <string name="help_main_title">E码通使用说明</string>
     <string name="help_main_message">1. 自动提亮：进入前台出示二维码时自动调至最高亮度，便于闸机扫码识别。\n\n2. 隐私防窥：轻触二维码卡片任意区域可快速隐藏，再次轻触重新显示。\n\n3. 自动续期：二维码失效前会在前台自动静默刷新。</string>
 
-    <string name="help_balance_source_title">余额数据源说明</string>
-    <string name="help_balance_source_message">1. 校园卡一卡通网站：官方权威实时余额，但仅限在校园网或校园 WebVPN 环境下访问。\n\n2. 智慧东大门户接口：校内外公网均可直接查询，数据同步可能有数小时延迟。</string>
-
     <string name="help_back_mode_title">返回退出方式说明</string>
     <string name="help_back_mode_message">1. 双击防误触退出（推荐）：在主界面连续按两次返回键才退出应用，防止扫码时手势滑动误关。\n\n2. 单次退出：按一次返回键即刻退出应用。</string>
 
     <string name="help_update_source_title">下载源说明</string>
     <string name="help_update_source_message">1. 自动选择（推荐）：下载前并发测试各加速节点延迟，自动选用最快的线路。\n\n2. 代理镜像：通过国内高速镜像加速 GitHub Releases 下载，均支持断点续传。</string>
+
+    <string name="help_qr_brightness_title">二维码高亮方式说明</string>
+    <string name="help_qr_brightness_message">1. 全屏最高亮度（默认）：传统模式，展示二维码时将整个屏幕调至最高亮度。\n\n2. HDR 局部高亮（实验性）：在支持 HDR 的屏幕上，通过 Ultra HDR 增益遮罩仅将二维码白底提亮至峰值亮度，增强扫码识别率的同时保持应用其余部分为正常系统亮度，避免全屏强光刺眼。该功能为实验性功能，部分机型可能存在兼容性问题（如二维码发暗、颜色异常），如遇异常请切换回"全屏最高亮度"模式。\n\n3. 跟随系统亮度：保持手机当前系统亮度，不进行额外提亮。</string>
+
+    <string name="help_qr_launch_title">开屏二维码显示说明</string>
+    <string name="help_qr_launch_message">1. 打开应用时直接显示：启动后立即展示二维码，方便第一时间出示扫码。\n\n2. 打开应用时先隐藏：启动后二维码处于隐藏状态，轻触卡片再显示，防止旁人窥见。该偏好只决定每次打开应用时的初始状态，使用中轻触卡片的显示/隐藏切换不会被记住。</string>
 </resources>

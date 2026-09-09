@@ -159,6 +159,26 @@ class SettingsActivity : AppCompatActivity() {
             Log.i(TAG, "余额数据源切换为: ${balanceLabels[position]}")
         }
 
+        // 二维码高亮方式: HDR局部高亮(推荐,需屏幕支持) / 全屏最高亮度(传统) / 跟随系统亮度
+        val ddlQrBrightness: MaterialAutoCompleteTextView = findViewById(R.id.ddlQrBrightness)
+        val qrBrightnessLabels = listOf(
+            getString(R.string.qr_brightness_hdr),
+            getString(R.string.qr_brightness_full),
+            getString(R.string.qr_brightness_system),
+        )
+        val qrBrightnessModes = listOf(
+            QrBrightnessMode.HDR,
+            QrBrightnessMode.FULL,
+            QrBrightnessMode.SYSTEM,
+        )
+        ddlQrBrightness.setSimpleItems(qrBrightnessLabels.toTypedArray())
+        val selectedIndex = qrBrightnessModes.indexOf(settings.qrBrightnessMode).coerceAtLeast(0)
+        ddlQrBrightness.setText(qrBrightnessLabels[selectedIndex], false)
+        ddlQrBrightness.setOnItemClickListener { _, _, position, _ ->
+            settings.qrBrightnessMode = qrBrightnessModes[position]
+            Log.i(TAG, "二维码高亮方式切换为: ${qrBrightnessLabels[position]}")
+        }
+
         currentVersion = try {
             packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
         } catch (_: Exception) {
@@ -215,6 +235,9 @@ class SettingsActivity : AppCompatActivity() {
         // 绑定各个 [?] 极简问号说明按钮
         findViewById<ImageButton>(R.id.btnHelpBalanceSource).setOnClickListener {
             showHelpDialog(R.string.help_balance_source_title, R.string.help_balance_source_message)
+        }
+        findViewById<ImageButton>(R.id.btnHelpQrBrightness).setOnClickListener {
+            showHelpDialog(R.string.help_qr_brightness_title, R.string.help_qr_brightness_message)
         }
         findViewById<ImageButton>(R.id.btnHelpBackMode).setOnClickListener {
             showHelpDialog(R.string.help_back_mode_title, R.string.help_back_mode_message)

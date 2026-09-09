@@ -2,8 +2,10 @@ package com.neboer.ecode
 
 import android.animation.ObjectAnimator
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
@@ -69,6 +71,8 @@ class MainActivity : AppCompatActivity() {
     private var balanceJob: Job? = null
     private var balanceSpin: ObjectAnimator? = null
     private var qrBitmap: Bitmap? = null
+    private var currentQrCode: String? = null
+    private var lastAppliedHdr: Boolean = false
     private var qrVisible: Boolean = true
     private var originalBrightness: Float = -1f
     private var lastBackPressTime: Long = 0
@@ -176,6 +180,7 @@ class MainActivity : AppCompatActivity() {
             btnRefreshBalance.isEnabled = false
             cardBalance.isEnabled = false
             qrBitmap = null
+            currentQrCode = null
             ivQRCode.setImageBitmap(null)
             ivQRCode.visibility = View.GONE
             layoutQRPlaceholder.visibility = View.VISIBLE
@@ -201,6 +206,20 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "登录态变化: $loggedIn -> $hasSession")
             loggedIn = hasSession
             renderSessionState()
+        }
+
+        // 高亮模式可能在设置页被修改:如果 HDR 激活状态发生变化且已有二维码，重新生成位图以挂载/移除 Gainmap
+        val currentHdr = isHdrHighlightActive()
+        val savedCode = currentQrCode
+        if (loggedIn && qrVisible && savedCode != null && currentHdr != lastAppliedHdr) {
+            lastAppliedHdr = currentHdr
+            lifecycleScope.launch(Dispatchers.Default) {
+                val bitmap = generateQRBitmap(savedCode, 560)
+                withContext(Dispatchers.Main) {
+                    qrBitmap = bitmap
+                    ivQRCode.setImageBitmap(bitmap)
+                }
+            }
         }
 
         // 刷新只在前台 + 二维码可见时进行;回前台立即重启循环拉新码
@@ -238,6 +257,8 @@ class MainActivity : AppCompatActivity() {
                 when (result) {
                     is QrFetchResult.Success -> {
                         netRetryMs = NET_RETRY_BASE_MS
+                        currentQrCode = result.qrCode
+                        lastAppliedHdr = isHdrHighlightActive()
                         val bitmap = withContext(Dispatchers.Default) {
                             generateQRBitmap(result.qrCode, 560)
                         }
@@ -339,14 +360,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun isHdrHighlightActive(): Boolean {
+        return settings.qrBrightnessMode == QrBrightnessMode.HDR && HdrHelper.isHdrSupported(this)
+    }
+
     private fun generateQRBitmap(content: String, size: Int): Bitmap {
         val writer = QRCodeWriter()
         val bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, size, size)
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         for (x in 0 until size) {
             for (y in 0 until size) {
-                bitmap.setPixel(x, y, if (bitMatrix[x, y]) Color.BLACK else Color.TRANSPARENT)
+                // HDR Gainmap 需基图有非零白底(Color.WHITE)才能倍增高光;
+                // 若为 TRANSPARENT, Gain 乘算仍为 0
+                bitmap.setPixel(x, y, if (bitMatrix[x, y]) Color.BLACK else Color.WHITE)
             }
+        }
+        if (isHdrHighlightActive() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            HdrHelper.attachGainmap(bitmap, bitMatrix, size)
         }
         return bitmap
     }
@@ -382,16 +412,41 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyBrightness(on: Boolean) {
         if (on && qrVisible && loggedIn) {
-            window.attributes = window.attributes.apply {
-                screenBrightness = 1.0f
+            val activeHdr = isHdrHighlightActive()
+            if (activeHdr) {
+                // HDR 局部高亮: 窗口切至 HDR 颜色模式，屏幕背光维持系统当前亮度，其余组件不刺眼
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    window.colorMode = ActivityInfo.COLOR_MODE_HDR
+                }
+                window.attributes = window.attributes.apply {
+                    screenBrightness = originalBrightness
+                }
+            } else {
+                // 传统全屏高亮或跟随系统亮度
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    window.colorMode = ActivityInfo.COLOR_MODE_DEFAULT
+                }
+                val targetBrightness = if (settings.qrBrightnessMode == QrBrightnessMode.SYSTEM) {
+                    originalBrightness
+                } else {
+                    1.0f
+                }
+                window.attributes = window.attributes.apply {
+                    screenBrightness = targetBrightness
+                }
             }
         } else {
+            // 退出前台、隐藏二维码或未登录时，还原 SDR 默认颜色模式与原本系统亮度
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                window.colorMode = ActivityInfo.COLOR_MODE_DEFAULT
+            }
             window.attributes = window.attributes.apply {
                 screenBrightness = originalBrightness
             }
         }
     }
 
+    @Suppress("MissingSuperCall")
     override fun onBackPressed() {
         when (settings.backPressMode) {
             BackPressMode.SINGLE -> finish()

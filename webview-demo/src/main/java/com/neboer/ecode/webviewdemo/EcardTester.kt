@@ -59,7 +59,11 @@ class EcardTester(private val client: OkHttpClient) {
 
         trace.append("④ 会话已建立,重新访问 Home.aspx\n")
         val balance = parseBalance(getBody(HOME_URL))
-        return if (balance != null) done("✓ 主钱包余额 $balance 元") else done("✗ 会话建立成功但未解析到余额")
+        return if (balance != null) {
+            done("✓ 主钱包余额 $balance 元")
+        } else {
+            done("✗ 会话链路走完但未解析到余额(见上方HTTP轨迹:5xx=内网站点校外不可达;302弹回登录页=会话未真正建立)")
+        }
     }
 
     private fun done(result: String): String = "【$result】\n$trace"
@@ -100,7 +104,13 @@ class EcardTester(private val client: OkHttpClient) {
                     traceLine("ticket落地页未找到SSOLogin表单, HTML前300字: ${html?.take(300)}")
                     return Outcome.FAILED
                 }
-                traceLine("落地 $landed 无SSO表单 → 已有会话")
+                traceLine("落地 $landed 无SSO表单 → 视为已有会话; HTML前300字: ${html?.take(300) ?: "(空)"}")
+                if (html?.contains("webvpn", ignoreCase = true) == true) {
+                    traceLine("⚠ 页面含 webvpn 字样:该响应疑似校外边界/网关页,而非ecard真实页面")
+                }
+                if (landed.encodedPath.endsWith("/selflogin/login.aspx")) {
+                    traceLine("⚠ selflogin 未发生重定向(预期应 302 去CAS换票),该 200 响应可疑")
+                }
                 return Outcome.SESSION_OK
             }
             val (postUrl, fields) = form
@@ -171,18 +181,32 @@ class EcardTester(private val client: OkHttpClient) {
     }
 
     private fun getBody(url: String): String? {
-        return try {
-            client.newCall(
-                Request.Builder().url(url).header("User-Agent", USER_AGENT).get().build()
-            ).execute().use { resp ->
-                val body = resp.body?.string()
-                traceLine("GET $url → HTTP ${resp.code}, ${body?.length ?: 0}字")
-                body
+        var result: String? = null
+        var lastCode = -1
+        for (attempt in 1..3) {
+            try {
+                client.newCall(
+                    Request.Builder().url(url).header("User-Agent", USER_AGENT).get().build()
+                ).execute().use { resp ->
+                    lastCode = resp.code
+                    result = resp.body?.string()
+                    traceLine("GET $url → HTTP ${resp.code}, ${result?.length ?: 0}字${if (attempt > 1) "(第${attempt}次尝试)" else ""}")
+                }
+                if (lastCode in 500..599 && attempt < 3) {
+                    traceLine("5xx 服务端错误,1秒后重试…")
+                    Thread.sleep(1000)
+                    continue
+                }
+                if (lastCode in 500..599) {
+                    traceLine("⚠ 持续 5xx:ecard 是内网站点且无 webvpn 路由,校外直连不可达;校内则可能是服务端临时故障")
+                }
+                return result
+            } catch (e: Exception) {
+                traceLine("GET $url 异常: ${e.message}")
+                return null
             }
-        } catch (e: Exception) {
-            traceLine("GET $url 异常: ${e.message}")
-            null
         }
+        return result
     }
 
     private fun parseBalance(html: String?): String? {

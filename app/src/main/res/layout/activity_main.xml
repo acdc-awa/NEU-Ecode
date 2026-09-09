@@ -120,13 +120,13 @@
 
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:padding="16dp">
+            android:layout_height="match_parent">
 
             <ImageView
                 android:id="@+id/ivQRCode"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
+                android:contentDescription="@null"
                 android:scaleType="fitCenter" />
 
             <!-- 遮罩态与未登录空态 -->
@@ -136,6 +136,7 @@
                 android:layout_height="match_parent"
                 android:gravity="center"
                 android:orientation="vertical"
+                android:padding="16dp"
                 android:visibility="gone">
 
                 <ImageView

@@ -122,6 +122,7 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
+    @Suppress("MissingSuperCall")
     override fun onBackPressed() {
         navigateBack()
     }

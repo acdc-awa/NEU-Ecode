@@ -8,6 +8,9 @@ enum class BackPressMode { SINGLE, DOUBLE }
 /** 余额数据源:ECARD=一卡通自助查询(权威值,仅校园网);PORTAL=门户个人数据 JSON(公网可达,数值可能不同步) */
 enum class BalanceSourceKind { ECARD, PORTAL }
 
+/** 二维码展示时的亮度模式: HDR=仅二维码HDR局部高亮; FULL=全屏最高亮度; SYSTEM=保持系统亮度 */
+enum class QrBrightnessMode { HDR, FULL, SYSTEM }
+
 class AppSettings(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -36,11 +39,21 @@ class AppSettings(context: Context) {
         }
         set(value) = prefs.edit().putString(KEY_BALANCE_SOURCE, value.name.lowercase()).apply()
 
+    /** 二维码展示时的亮度/高亮模式,默认 HDR 局部高亮 */
+    var qrBrightnessMode: QrBrightnessMode
+        get() = when (prefs.getString(KEY_QR_BRIGHTNESS_MODE, "hdr")) {
+            "full" -> QrBrightnessMode.FULL
+            "system" -> QrBrightnessMode.SYSTEM
+            else -> QrBrightnessMode.HDR
+        }
+        set(value) = prefs.edit().putString(KEY_QR_BRIGHTNESS_MODE, value.name.lowercase()).apply()
+
     companion object {
         private const val PREF_NAME = "ecode_settings"
         private const val KEY_BACK_PRESS_MODE = "back_press_mode"
         private const val KEY_QR_VISIBLE = "qr_visible"
         private const val KEY_UPDATE_SOURCE = "update_source"
         private const val KEY_BALANCE_SOURCE = "balance_source"
+        private const val KEY_QR_BRIGHTNESS_MODE = "qr_brightness_mode"
     }
 }

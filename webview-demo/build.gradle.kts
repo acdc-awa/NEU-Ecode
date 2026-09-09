@@ -38,4 +38,5 @@ dependencies {
     implementation(libs.core.ktx)
     implementation(libs.appcompat)
     implementation(libs.okhttp)
+    implementation(libs.zxing.core)
 }

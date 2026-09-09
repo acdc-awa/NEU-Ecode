@@ -5,6 +5,7 @@
 
     <application
         android:allowBackup="false"
+        android:icon="@drawable/ic_demo_launcher"
         android:label="@string/webview_demo_app_name"
         android:theme="@style/Theme.AppCompat.DayNight.NoActionBar"
         android:usesCleartextTraffic="true">

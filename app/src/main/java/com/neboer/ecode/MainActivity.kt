@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var layoutQRPlaceholder: View
     private lateinit var tvPlaceholderText: TextView
     private lateinit var btnLogin: MaterialButton
-    private lateinit var cardQRCode: View
+    private lateinit var cardQRCode: MaterialCardView
     private lateinit var btnHelp: ImageButton
     private lateinit var btnSettings: ImageButton
 
@@ -181,6 +181,7 @@ class MainActivity : AppCompatActivity() {
             layoutQRPlaceholder.visibility = View.VISIBLE
             tvPlaceholderText.setText(R.string.not_logged_in_placeholder)
             btnLogin.visibility = View.VISIBLE
+            cardQRCode.setCardBackgroundColor(getColor(R.color.md_theme_surface_container))
             applyBrightness(false)
         }
     }
@@ -341,10 +342,10 @@ class MainActivity : AppCompatActivity() {
     private fun generateQRBitmap(content: String, size: Int): Bitmap {
         val writer = QRCodeWriter()
         val bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, size, size)
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         for (x in 0 until size) {
             for (y in 0 until size) {
-                bitmap.setPixel(x, y, if (bitMatrix[x, y]) Color.BLACK else Color.WHITE)
+                bitmap.setPixel(x, y, if (bitMatrix[x, y]) Color.BLACK else Color.TRANSPARENT)
             }
         }
         return bitmap
@@ -356,12 +357,14 @@ class MainActivity : AppCompatActivity() {
             ivQRCode.visibility = View.VISIBLE
             layoutQRPlaceholder.visibility = View.GONE
             btnLogin.visibility = View.GONE
+            cardQRCode.setCardBackgroundColor(getColor(R.color.qr_canvas_background))
             qrBitmap?.let { ivQRCode.setImageBitmap(it) }
             applyBrightness(true)
         } else {
             ivQRCode.visibility = View.GONE
             layoutQRPlaceholder.visibility = View.VISIBLE
             btnLogin.visibility = View.GONE
+            cardQRCode.setCardBackgroundColor(getColor(R.color.md_theme_surface_container))
             tvPlaceholderText.setText(R.string.qr_hidden_placeholder)
             applyBrightness(false)
             refreshJob?.cancel()

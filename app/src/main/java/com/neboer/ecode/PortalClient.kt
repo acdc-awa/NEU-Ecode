@@ -8,7 +8,7 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
- * 门户(personal.neu.edu.cn)"个人数据"卡片的余额数据源——备用接口,暂不接入主界面。
+ * 门户(personal.neu.edu.cn)"个人数据"卡片的余额数据源——唯一余额接口。
  *
  * 接口流程(见 .har/personal.neu.edu.cn.har):
  * 1. GET /portal/personal/frontend/data/items?type=personal_data
@@ -24,10 +24,10 @@ import java.util.concurrent.TimeUnit
  * CookieJar 过站),兑票后 GET /portal/ 签发 SESS_ID。直接对 tpass 传
  * service=根路径 无效——根路径不消费 ticket,SESS_ID 也无人签发
  * (2026-09-09 webview-demo 实测修正,commit 77695a9)。
- * CASTGC 失效时无法静默恢复,返回 null 由 UI 引导重新登录。
+ * CASTGC 失效时无法静默恢复,返回 Failed 由 UI 引导重新登录。
  *
- * 注意:当前门户与 ecard 的余额数值不同步(门户读数偏大),主界面数值以 EcardClient
- * 为准;两侧数据同步后,把 MainActivity 的余额源换成本类即可(同样实现 BalanceSource)。
+ * 历史:此前门户与一卡通(ecard)余额数值不同步、门户读数偏大,故主界面曾以
+ * EcardClient 为准;2026-09 两侧数据已同步,ecard 解析(含 Jsoup 依赖)整体废弃。
  */
 class PortalClient(
     private val client: OkHttpClient

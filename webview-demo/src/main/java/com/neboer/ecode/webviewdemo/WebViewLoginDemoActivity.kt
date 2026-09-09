@@ -136,6 +136,7 @@ class WebViewLoginDemoActivity : AppCompatActivity() {
         }
         btnVerify.setOnClickListener { verifySession() }
         btnBalance.setOnClickListener { testBalance() }
+        findViewById<Button>(R.id.btnPortal).setOnClickListener { testPortalBalance() }
         findViewById<Button>(R.id.btnRestart).setOnClickListener { restart() }
     }
 
@@ -290,6 +291,24 @@ class WebViewLoginDemoActivity : AppCompatActivity() {
             }
             runOnUiThread {
                 btnBalance.isEnabled = true
+                appendResult("$result\n")
+            }
+        }.start()
+    }
+
+    /** 门户 JSON 余额链路:同样纯 CASTGC 兑票,是后续替代 ecard 的候选数据源 */
+    private fun testPortalBalance() {
+        findViewById<Button>(R.id.btnPortal).isEnabled = false
+        appendResult("\n═══ 余额验证(portal JSON,纯TGC兑票) ═══\n")
+        Thread {
+            val result = try {
+                PortalTester(apiClient).fetchBalance()
+            } catch (e: Exception) {
+                Log.e(TAG, "门户余额验证异常", e)
+                "异常: ${e.message}"
+            }
+            runOnUiThread {
+                findViewById<Button>(R.id.btnPortal).isEnabled = true
                 appendResult("$result\n")
             }
         }.start()

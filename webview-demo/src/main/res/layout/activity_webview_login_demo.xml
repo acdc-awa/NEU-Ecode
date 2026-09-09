@@ -121,6 +121,12 @@
                 android:text="验证余额(ecard,纯TGC静默换票)" />
 
             <Button
+                android:id="@+id/btnPortal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="验证余额(portal JSON,备用数据源)" />
+
+            <Button
                 android:id="@+id/btnRestart"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

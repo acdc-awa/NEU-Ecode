@@ -46,6 +46,13 @@ class MainActivity : AppCompatActivity() {
         /** 网络异常重试:首次 5s,翻倍,上限 30s */
         private const val NET_RETRY_BASE_MS = 5_000L
         private const val NET_RETRY_MAX_MS = 30_000L
+
+        /**
+         * 门户会话保活间隔。CASTGC 只有 2 小时且无法静默续期,而门户余额靠的
+         * SESS_ID 只在 msg/index 这类端点上续 24 小时窗口,所以前台定期打一发,
+         * 用户只要 24 小时内开过应用,余额就不会失效。
+         */
+        private const val PORTAL_KEEPALIVE_INTERVAL_MS = 30 * 60 * 1000L
     }
 
     private lateinit var apiClient: EcodeApiClient
@@ -68,6 +75,7 @@ class MainActivity : AppCompatActivity() {
 
     private var refreshJob: Job? = null
     private var balanceJob: Job? = null
+    private var keepAliveJob: Job? = null
     private var balanceSpin: ObjectAnimator? = null
     private var qrBitmap: Bitmap? = null
     private var currentQrCode: String? = null
@@ -169,6 +177,8 @@ class MainActivity : AppCompatActivity() {
             refreshJob = null
             balanceJob?.cancel()
             balanceJob = null
+            keepAliveJob?.cancel()
+            keepAliveJob = null
             balanceAutoLoaded = false
             setBalanceRefreshing(false)
             cardStatusPill.setCardBackgroundColor(getColor(R.color.md_theme_surface_container_high))
@@ -231,6 +241,12 @@ class MainActivity : AppCompatActivity() {
             balanceAutoLoaded = true
             loadBalance()
         }
+
+        // 门户会话保活:每次回前台打一发,并在此期间每 30 分钟续一次窗口,
+        // 避免 CASTGC 2 小时上限一到余额就再也建不起会话
+        if (loggedIn && keepAliveJob?.isActive != true) {
+            startPortalKeepAlive()
+        }
     }
 
     override fun onPause() {
@@ -238,7 +254,21 @@ class MainActivity : AppCompatActivity() {
         // 退后台/回桌面即停止二维码刷新(程序留在后台也不发请求)
         refreshJob?.cancel()
         refreshJob = null
+        keepAliveJob?.cancel()
+        keepAliveJob = null
         applyBrightness(false)
+    }
+
+    /** 门户会话保活循环:先打一发再等间隔,所以每次回前台都会立即续一次窗口 */
+    private fun startPortalKeepAlive() {
+        keepAliveJob?.cancel()
+        keepAliveJob = lifecycleScope.launch {
+            while (isActive) {
+                val ok = withContext(Dispatchers.IO) { portalClient.keepSessionAlive() }
+                Log.d(TAG, "门户会话保活: ok=$ok")
+                delay(PORTAL_KEEPALIVE_INTERVAL_MS)
+            }
+        }
     }
 
     /**
@@ -319,6 +349,13 @@ class MainActivity : AppCompatActivity() {
                 BalanceResult.NetworkUnreachable -> {
                     Log.w(TAG, "余额网络不可达")
                     Toast.makeText(this@MainActivity, R.string.balance_network_unreachable, Toast.LENGTH_LONG)
+                        .show()
+                    tvBalance.text = getString(R.string.balance_unknown)
+                }
+
+                BalanceResult.SessionExpired -> {
+                    Log.w(TAG, "余额会话已过期(CASTGC失效),需重新登录")
+                    Toast.makeText(this@MainActivity, R.string.balance_session_expired, Toast.LENGTH_LONG)
                         .show()
                     tvBalance.text = getString(R.string.balance_unknown)
                 }
@@ -456,6 +493,7 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         refreshJob?.cancel()
         balanceJob?.cancel()
+        keepAliveJob?.cancel()
         balanceSpin?.cancel()
     }
 }

@@ -45,5 +45,17 @@ class WebViewCookieJar : CookieJar {
                 ?.split(";")
                 ?.any { it.trim().startsWith("XSRF-TOKEN=", ignoreCase = true) } == true
         }
+
+        /**
+         * CAS 的 TGT 凭据是否还在。CASTGC 只在 WebView 输账密登录时签发(Max-Age=7200,2 小时),
+         * 之后兑票不会续期,所以它一旦消失就只能重新登录——门户余额正是卡在这里。
+         * 该 cookie 不是 HttpOnly,可以从 CookieManager 读到。
+         */
+        fun hasCastgc(): Boolean {
+            return CookieManager.getInstance()
+                .getCookie("https://pass.neu.edu.cn/tpass/")
+                ?.split(";")
+                ?.any { it.trim().startsWith("CASTGC=", ignoreCase = true) } == true
+        }
     }
 }

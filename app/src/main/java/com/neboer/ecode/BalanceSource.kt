@@ -1,13 +1,19 @@
 package com.neboer.ecode
 
-/** 余额查询结果:区分网络不可达/超时与其他失败(会话失效、接口报错等) */
+/** 余额查询结果:区分网络不可达/超时、登录已过期与其他失败(接口报错等) */
 sealed class BalanceResult {
     data class Success(val value: String) : BalanceResult()
 
     /** 网络不可达/超时(如断网) */
     object NetworkUnreachable : BalanceResult()
 
-    /** 会话失效、接口报错、页面结构变化等其他失败 */
+    /**
+     * CASTGC 已失效,门户会话无法静默重建,只能重新登录。
+     * 与 [Failed] 分开是因为 UI 要给"去重新登录"的指引而不是"稍后重试"。
+     */
+    object SessionExpired : BalanceResult()
+
+    /** 接口报错、页面结构变化等其他失败 */
     object Failed : BalanceResult()
 }
 

@@ -69,6 +69,8 @@ class LoginActivity : AppCompatActivity() {
             setAcceptCookie(true)
             setAcceptThirdPartyCookies(webView, true)
         }
+        // OkHttp 与 WebView 用同一个 UA:登录日志里门户那条认证事件曾因截断 UA 被记成 unknown
+        UserAgent.adoptWebViewUserAgent(this)
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true

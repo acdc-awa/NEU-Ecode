@@ -24,7 +24,6 @@ class CasSessionRenewer(private val client: OkHttpClient) {
         private const val CAS_LOGIN_URL =
             "https://pass.neu.edu.cn/tpass/login?service=https%3A%2F%2Fecode.neu.edu.cn%2Fecode%2Fapi%2Fsso%2Flogin"
         private const val ECODE_HOST = "ecode.neu.edu.cn"
-        private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36"
     }
 
     private val followClient = client.newBuilder()
@@ -37,7 +36,7 @@ class CasSessionRenewer(private val client: OkHttpClient) {
     /** true = ecode 会话已刷新(新 XSRF-TOKEN 已入 CookieManager);false = CASTGC 失效,需重新登录 */
     fun renewEcodeSession(): Boolean {
         val response = followClient.newCall(
-            Request.Builder().url(CAS_LOGIN_URL).header("User-Agent", USER_AGENT).get().build()
+            Request.Builder().url(CAS_LOGIN_URL).header("User-Agent", UserAgent.current).get().build()
         ).execute()
         val landed = response.request.url
         val code = response.code

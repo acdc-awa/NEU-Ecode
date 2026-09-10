@@ -66,7 +66,7 @@ class EcodeApiClient(private val client: OkHttpClient) {
 
         val request = Request.Builder()
             .url("https://ecode.neu.edu.cn/ecode/api/qr-code")
-            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+            .header("User-Agent", UserAgent.current)
             .header("Accept", "application/json, text/plain, */*")
             .header("Referer", "https://ecode.neu.edu.cn/ecode/")
             .header("X-XSRF-TOKEN", xsrfToken ?: "")

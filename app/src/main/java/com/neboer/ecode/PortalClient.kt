@@ -62,7 +62,6 @@ class PortalClient(
             "https://personal.neu.edu.cn/portal/ucs/frontend/msg/index?keyword=&ucs_type=&source=&starttime=&page=1&pagesize=10&status=2"
         private const val PORTAL_HOST = "personal.neu.edu.cn"
         private const val CAS_HOST = "pass.neu.edu.cn"
-        private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36"
     }
 
     /** 兑票结果:OK=门户会话已建立;AUTH_EXPIRED=CASTGC失效;FAILED=链路变化等其他原因 */
@@ -169,7 +168,7 @@ class PortalClient(
      */
     private fun establishViaCas(): EstablishResult {
         val response = followClient.newCall(
-            Request.Builder().url(CAS_LOGIN_ENTRY_URL).header("User-Agent", USER_AGENT).get().build()
+            Request.Builder().url(CAS_LOGIN_ENTRY_URL).header("User-Agent", UserAgent.current).get().build()
         ).execute()
         val landed = response.request.url
         response.close()
@@ -179,10 +178,10 @@ class PortalClient(
             return if (landed.host == CAS_HOST) EstablishResult.AUTH_EXPIRED else EstablishResult.FAILED
         }
         followClient.newCall(
-            Request.Builder().url(PORTAL_HOME_URL).header("User-Agent", USER_AGENT).get().build()
+            Request.Builder().url(PORTAL_HOME_URL).header("User-Agent", UserAgent.current).get().build()
         ).execute().close()
         followClient.newCall(
-            Request.Builder().url(KEEPALIVE_URL).header("User-Agent", USER_AGENT).get().build()
+            Request.Builder().url(KEEPALIVE_URL).header("User-Agent", UserAgent.current).get().build()
         ).execute().close()
         return EstablishResult.OK
     }
@@ -232,7 +231,7 @@ class PortalClient(
     private fun getJson(url: String): String? {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", USER_AGENT)
+            .header("User-Agent", UserAgent.current)
             .header("Accept", "application/json, text/plain, */*")
             .header("Referer", "https://personal.neu.edu.cn/portal")
             .header("X-Requested-With", "XMLRequest")

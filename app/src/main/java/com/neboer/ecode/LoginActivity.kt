@@ -22,6 +22,7 @@ class LoginActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "LoginActivity"
+        private const val ECODE_HOST = "ecode.neu.edu.cn"
         private const val CAS_LOGIN_URL =
             "https://pass.neu.edu.cn/tpass/login?service=https%3A%2F%2Fecode.neu.edu.cn%2Fecode%2Fapi%2Fsso%2Flogin"
         private const val POLL_INTERVAL_MS = 800L
@@ -33,6 +34,16 @@ class LoginActivity : AppCompatActivity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var loggedIn = false
+
+    /**
+     * 本次登录流程中 WebView 是否真的落到过 ecode。
+     *
+     * 只靠 "CookieManager 里有 SESSION" 判定会误判:SESSION 是约 100 天的持久 cookie,
+     * 服务端可能早已作废那个会话(会话存储被清等)而 cookie 还留在本地,于是登录页一打开
+     * 就报成功。CAS 登录成功后必然把 WebView 重定向到 ecode 的 sso/login 去消费 ticket,
+     * 所以要求"本次真的到过 ecode"就能把这个陈旧 cookie 的情况排除掉。
+     */
+    private var reachedEcode = false
 
     private val pollRunnable = object : Runnable {
         override fun run() {
@@ -83,6 +94,7 @@ class LoginActivity : AppCompatActivity() {
             // 重定向链中途 cookie 一落地就切屏,避开末尾无前端页面的错误页
             override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
                 Log.d(TAG, "history: $url")
+                if (url.contains(ECODE_HOST)) reachedEcode = true
                 checkLoginSuccess()
             }
         }
@@ -99,12 +111,14 @@ class LoginActivity : AppCompatActivity() {
 
     private fun checkLoginSuccess() {
         if (loggedIn) return
+        // 必须"本次真的落到过 ecode"再谈会话,否则会被本地陈旧 SESSION cookie 骗过
+        if (!reachedEcode) return
         if (!WebViewCookieJar.hasEcodeSession()) return
 
         loggedIn = true
         mainHandler.removeCallbacks(pollRunnable)
         logCasCookieNames()
-        Log.d(TAG, "登录成功(XSRF-TOKEN已落地),CLEAR_TOP回主界面自动刷新")
+        Log.d(TAG, "登录成功(已到过 ecode 且 SESSION 已落地),CLEAR_TOP回主界面自动刷新")
         cardLoginStatus.visibility = View.VISIBLE
         setResult(RESULT_OK)
         // 主界面通常已在栈底(空态/设置页进入):清掉其上的设置/登录页直接回到它

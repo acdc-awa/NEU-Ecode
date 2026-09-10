@@ -21,9 +21,17 @@ sealed class QrFetchResult {
 
 /**
  * ecode API 客户端。会话来源 = WebViewCookieJar(CookieManager 单一存储):
- * - XSRF-TOKEN 每次请求时从 CookieManager 读取(ecode 每个响应会轮换该 cookie,jar 自动回写)
+ * - 鉴权靠 HttpOnly 的 SESSION cookie(按域由 CookieJar 自动带上),见下方实测说明
+ * - XSRF-TOKEN 每次请求时从 CookieManager 现读,不用缓存值(服务端是"缺了就发、带了就不发",
+ *   不是逐响应轮换:客户端没带时它才在响应里补发一个新的,jar 自动回写)
  * - 首次请求失败时用 CASTGC 静默续期后重试一次;续期失败返回 AuthExpired,由 UI 引导重新登录
  * - IOException 一律归为 NetworkError(此前会穿透到协程导致闪退)
+ *
+ * 鉴权模型(2026-09-10 控制变量实测,详见 AGENTS.md):
+ * - qr-code 只认 SESSION——ecode 的 sso/login 种下的会话槽;伪造值或只带 XSRF-TOKEN 都返回 401
+ * - X-XSRF-TOKEN 头在这个 GET 端点上不被校验(缺失/错值/错配一律 200)。CSRF 通常只作用于写方法,
+ *   所以继续照发以贴近浏览器指纹,但别把它当鉴权头
+ * - SESSION 寿命约 100 天且不可续:扫过的 ecode 端点没有任何一个重发它
  */
 class EcodeApiClient(private val client: OkHttpClient) {
 
@@ -78,7 +86,7 @@ class EcodeApiClient(private val client: OkHttpClient) {
         Log.d(TAG, "tryFetch: HTTP ${response.code}")
 
         if (!response.isSuccessful) {
-            Log.w(TAG, "tryFetch失败: HTTP ${response.code}(响应轮换的新XSRF-TOKEN已由jar回写)")
+            Log.w(TAG, "tryFetch失败: HTTP ${response.code}(会话失效或 token 缺失)")
             return null
         }
 

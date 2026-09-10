@@ -18,24 +18,29 @@ import java.util.concurrent.locks.ReentrantLock
  *    net.balance(网费余额),以后要加同样按 key 查 detail 即可
  * 2. GET /portal/personal/frontend/data/detail?id=<id>
  *    → {"e":0,"m":"操作成功","d":{"data":{"value":"50.33","unit":"元"}}}
- * 两次请求只需 SESS_ID cookie + Accept: application/json(浏览器还带了
- * X-Requested-With: XMLRequest,非必需,这里照带以贴近浏览器指纹)。
+ * 两次请求需要 CK_LC + CK_VL 两个 cookie(SESS_ID 不参与校验,见下);Accept: application/json
+ * 即可,浏览器还带了 X-Requested-With: XMLRequest,非必需,这里照带以贴近浏览器指纹。
+ * 鉴权失败不会给 HTTP 错误码,而是 200 + {"e":10013,"m":"登录信息已失效，请重新登录"}。
  *
  * 会话:走门户自己的 SSO 入口 cas_login/1(由它拼 service 去 CAS,CASTGC 靠共享
- * CookieJar 过站),兑票后 GET /portal/ 签发 SESS_ID,再 GET msg/index 把 SESS_ID
- * 的 24h 窗口推满。直接对 tpass 传 service=根路径无效——根路径不消费 ticket,
- * SESS_ID 也无人签发(2026-09-09 webview-demo 实测修正,commit 77695a9)。
+ * CookieJar 过站),兑票那一跳下发 CK_LC/CK_VL。直接对 tpass 传 service=根路径无效
+ * ——根路径不消费 ticket(2026-09-09 webview-demo 实测修正,commit 77695a9)。
  *
- * 会话寿命(2026-09 抓包结论,原始报文见 .har/ 与 AGENTS.md):
- * - 余额接口只认 SESS_ID + CK_LC + CK_VL,而这三者只能靠 CASTGC 兑票换来
+ * 鉴权模型(2026-09-10 控制变量实测,握手细节见 .har/ 与 AGENTS.md):
+ * - 余额 data 接口只认 CK_LC + CK_VL,两个缺一不可;SESS_ID 完全不参与校验
+ *   (伪造 SESS_ID + 真 CK_LC/CK_VL 照样返回完整数据)
+ * - CK_LC/CK_VL 只在 cas_login/1 兑票那一跳下发,之后没有任何端点重发它们
+ *   (扫过 15 个门户端点,只有 msg/index 重发 SESS_ID,而 SESS_ID 不是凭据)
+ * - 所以凭据没有滑动续期手段:唯一重新获得的途径是用有效 CASTGC 再兑一次票,
+ *   且兑出的是全新的一对(旧的那对不会因此续期)
  * - CASTGC 只在输账密登录时签发,Max-Age=7200(2 小时),之后兑票不会续期;
- *   非校园网重新登录还要过短信二次验证,静默刷 CASTGC 走不通
- * - 余额接口自身不刷新 SESS_ID,只有 msg/index 这类端点会把 SESS_ID 重发成 +24h
+ *   没有 CASTGC 时门户 SSO 入口只会 302 回 CAS 登录页,所以非校园网只能重新登录
+ *   (还要过短信二次验证)
  *
- * 所以这里不靠 CASTGC 续命,而是靠 [keepSessionAlive] 在应用前台周期性地打
- * msg/index,让门户会话的 24h 窗口一直往后滑——只要用户 24 小时内开过一次应用,
- * 门户会话就不会失效,余额也就不需要重新登录。真的滑没了(SESS_ID 与 CASTGC
- * 同时不在),只能返回 [BalanceResult.SessionExpired] 让 UI 引导重新登录。
+ * 因此 [keepSessionAlive] 的价值边界很清楚:CASTGC 仍有效(登录后 2 小时内)时,它能及早
+ * 发现凭据失效并静默重建,让用户不必为此重新登录;超过 2 小时就只剩重新登录一条路。
+ * 它顺带打的 msg/index 会把 SESS_ID 窗口推后 24h,但 SESS_ID 不参与余额鉴权,那一步
+ * 是尽力而为,不是保命手段。凭据彻底不可用时返回 [BalanceResult.SessionExpired]。
  *
  * 历史:此前门户与一卡通(ecard)余额数值不同步、门户读数偏大,故主界面曾以
  * EcardClient 为准;2026-09 两侧数据已同步,ecard 解析(含 Jsoup 依赖)整体废弃。
@@ -107,20 +112,24 @@ class PortalClient(
      */
     fun keepSessionAlive(): Boolean {
         return try {
-            if (isSessionAlive()) {
-                Log.d(TAG, "门户会话保活成功(SESS_ID窗口已顺延)")
+            if (isCredentialAlive()) {
+                slideSessionWindow()
+                Log.d(TAG, "门户凭据仍有效,保活顺延 SESS_ID 窗口")
                 return true
             }
             sessionLock.lock()
             try {
-                // 拿到锁后会话可能已被余额流程建好,再确认一次
-                if (isSessionAlive()) return true
+                // 等锁期间余额流程可能已经重建好会话,再确认一次
+                if (isCredentialAlive()) {
+                    slideSessionWindow()
+                    return true
+                }
                 if (!WebViewCookieJar.hasCastgc()) {
-                    Log.w(TAG, "门户会话保活失败:SESS_ID 已失效且 CASTGC 不在,需重新登录")
+                    Log.w(TAG, "门户凭据已失效且 CASTGC 不在,需重新登录")
                     return false
                 }
-                Log.i(TAG, "门户会话已失效,经cas_login兑票重建")
-                establishViaCas() == EstablishResult.OK && isSessionAlive()
+                Log.i(TAG, "门户凭据已失效,经cas_login兑票重建")
+                establishViaCas() == EstablishResult.OK && isCredentialAlive()
             } finally {
                 sessionLock.unlock()
             }
@@ -130,8 +139,27 @@ class PortalClient(
         }
     }
 
-    /** 打一发 msg/index:2xx 说明门户会话有效(顺带把 SESS_ID 的 24h 窗口推后) */
-    private fun isSessionAlive(): Boolean = getJson(KEEPALIVE_URL) != null
+    /**
+     * 门户凭据(CK_LC/CK_VL)是否仍然有效——必须用真正校验凭据的端点(items)判定。
+     *
+     * 2026-09-10 实测:门户鉴权失败返回的是 HTTP 200 + body e=10013(不是 HTTP 错误码),
+     * 所以看状态码一律"成功";msg/index 更差,它对已登出作废的凭据也返回 e=0。
+     * 两者都不能当探针,只有 items/detail 这类数据端点会真的校验(伪造或作废的凭据都返回 e=10013)。
+     */
+    private fun isCredentialAlive(): Boolean {
+        val body = getJson(ITEMS_URL) ?: return false
+        return try {
+            JSONObject(body).optInt("e", -1) == 0
+        } catch (e: Exception) {
+            Log.w(TAG, "items 响应解析失败: ${body.take(200)}", e)
+            false
+        }
+    }
+
+    /** 只有 msg/index 会把 SESS_ID 重发成 Max-Age=86400;它不影响余额凭据,这里只是顺延窗口 */
+    private fun slideSessionWindow() {
+        getJson(KEEPALIVE_URL)
+    }
 
     private fun ensureSessionAndFetch(): BalanceResult {
         if (!WebViewCookieJar.hasCastgc()) {

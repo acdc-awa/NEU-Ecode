@@ -315,8 +315,10 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     QrFetchResult.AuthExpired -> {
-                        Log.w(TAG, "CASTGC失效且续期失败,清会话停在空态等待重新登录")
-                        WebViewCookieJar.clearAll()
+                        // 只清 ecode 自己的会话:CASTGC 与门户凭据(CK_LC/CK_VL)留着,
+                        // 否则一次"二维码会话过期"会把还能用的余额一起废掉,逼出一次完整重新登录
+                        Log.w(TAG, "ecode 会话已失效,只清 ecode 域 cookie,保留 CASTGC 与门户凭据")
+                        WebViewCookieJar.clearEcodeSession()
                         loggedIn = false
                         renderSessionState()
                         tvStatus.text = getString(R.string.login_expired)

@@ -101,6 +101,7 @@ class LoginActivity : AppCompatActivity() {
 
         loggedIn = true
         mainHandler.removeCallbacks(pollRunnable)
+        logCasCookieNames()
         Log.d(TAG, "登录成功(XSRF-TOKEN已落地),CLEAR_TOP回主界面自动刷新")
         cardLoginStatus.visibility = View.VISIBLE
         setResult(RESULT_OK)
@@ -111,6 +112,23 @@ class LoginActivity : AppCompatActivity() {
             }
         )
         finish()
+    }
+
+    /**
+     * 诊断:列出 CAS 域当前的 cookie 名(只记名字,绝不记值——密码永远不进日志)。
+     * 用来确认除 2 小时寿命的 CASTGC 外,是否还存在"信任此设备"之类的长效令牌;
+     * 若存在,保存账密做静默重登才有意义,否则只是在设备上多存一份密码。
+     */
+    private fun logCasCookieNames() {
+        val raw = CookieManager.getInstance().getCookie("https://pass.neu.edu.cn/tpass/")
+        if (raw.isNullOrBlank()) {
+            Log.i(TAG, "CAS域cookie名: (空)")
+            return
+        }
+        val names = raw.split(";").mapNotNull { part ->
+            part.trim().substringBefore('=').takeIf { it.isNotEmpty() }
+        }
+        Log.i(TAG, "CAS域cookie名: $names")
     }
 
     /** 工具条关闭键与系统返回键同语义:WebView 可后退则后退,否则结束登录页 */

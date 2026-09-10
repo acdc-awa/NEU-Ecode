@@ -264,8 +264,10 @@ class MainActivity : AppCompatActivity() {
         keepAliveJob?.cancel()
         keepAliveJob = lifecycleScope.launch {
             while (isActive) {
+                // castgc 在保活前读:日志时间线能直接看出它是不是登录满 2 小时后消失
+                val castgc = WebViewCookieJar.hasCastgc()
                 val ok = withContext(Dispatchers.IO) { portalClient.keepSessionAlive() }
-                Log.d(TAG, "门户会话保活: ok=$ok")
+                Log.d(TAG, "门户会话保活: ok=$ok, castgc=$castgc")
                 delay(PORTAL_KEEPALIVE_INTERVAL_MS)
             }
         }

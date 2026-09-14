@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 逃生口用的网页登录页(默认路径是原生表单的 activity_login.xml) -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/rootWebLoginLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?android:colorBackground"
+    android:orientation="vertical">
+
+    <!-- 顶部工具条:适配 WindowInsets -->
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbarWebLogin"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        app:navigationContentDescription="@string/action_back"
+        app:navigationIcon="@drawable/ic_arrow_back"
+        app:navigationIconTint="?attr/colorOnSurface"
+        app:title="@string/login_toolbar_title"
+        app:titleTextColor="?attr/colorOnSurface" />
+
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/progressLogin"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:indeterminate="false"
+        android:max="100"
+        android:progress="0"
+        android:visibility="gone" />
+
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- 兑票落地后到切屏之间的过渡提示:使用 M3 语义色卡片 -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/cardLoginStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="20dp"
+        android:visibility="gone"
+        app:cardBackgroundColor="@color/status_pill_background"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="2dp"
+        app:strokeWidth="0dp">
+
+        <TextView
+            android:id="@+id/tvLoginStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:padding="14dp"
+            android:text="@string/login_success_entering"
+            android:textColor="@color/status_pill_text"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </com.google.android.material.card.MaterialCardView>
+
+</LinearLayout>

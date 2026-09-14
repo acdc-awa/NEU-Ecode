@@ -53,11 +53,8 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var progressDownload: ProgressBar
     private lateinit var tvProgress: TextView
     private lateinit var btnUpdateAction: MaterialButton
-    private lateinit var ddlUpdateSource: MaterialAutoCompleteTextView
     private lateinit var btnAccount: MaterialButton
-
-    /** 最近一次测速结果(prefix → 纳秒,失败为 Long.MAX_VALUE) */
-    private var sourceLatencies: Map<String, Long> = emptyMap()
+    private lateinit var tvAccountStatus: TextView
 
     private val downloadListener = object : ApkUpdateDownloader.Listener {
         // 回调已由下载器投递到主线程
@@ -132,14 +129,13 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
-        // 账号动作:已登录=切换账号(先清会话);未登录=首次登录。都进入 WebView 登录页,
-        // 成功后由登录页 CLEAR_TOP 回主界面,设置页随之出栈
+        // 账号卡片统一管"登录状态 + 自动续期状态"。自动续期没有自己的开关:它就是登录页上
+        // 那个"保存账号密码"勾选框,这里只把结果显示出来 —— 一个功能只有一个开关
+        tvAccountStatus = findViewById(R.id.tvAccountStatus)
         btnAccount = findViewById(R.id.btnSwitchAccount)
-        btnAccount.setOnClickListener {
-            if (WebViewCookieJar.hasEcodeSession()) {
-                WebViewCookieJar.clearAll()
-            }
-            startActivity(Intent(this, LoginActivity::class.java))
+        btnAccount.setOnClickListener { confirmAccountAction() }
+        findViewById<ImageButton>(R.id.btnHelpAccount).setOnClickListener {
+            showHelpDialog(R.string.help_credential_title, R.string.help_credential_message)
         }
 
         // 二维码高亮方式: 全屏最高亮度(默认,传统) / HDR局部高亮(实验性) / 跟随系统亮度
@@ -203,34 +199,6 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
-        // 下载源下拉:选项与选中值均来自 UpdateChecker.UI_SOURCES
-        ddlUpdateSource = findViewById(R.id.ddlUpdateSource)
-        ddlUpdateSource.setSimpleItems(UpdateChecker.UI_SOURCES.map { it.label }.toTypedArray())
-        ddlUpdateSource.setText(UpdateChecker.sourceById(settings.updateSourceId).label, false)
-        ddlUpdateSource.setOnItemClickListener { _, _, position, _ ->
-            val picked = UpdateChecker.UI_SOURCES[position]
-            settings.updateSourceId = picked.id
-            Log.i(TAG, "下载源切换为: ${picked.label}")
-        }
-
-        // 测速:对全部源(含直连)并发测到 GitHub API 的延迟,结果显示在下拉列表里
-        val btnSpeedTest: MaterialButton = findViewById(R.id.btnSpeedTest)
-        btnSpeedTest.setOnClickListener {
-            btnSpeedTest.isEnabled = false
-            btnSpeedTest.setText(R.string.update_speed_testing)
-            lifecycleScope.launch(Dispatchers.IO) {
-                val latencies = UpdateChecker.measureLatencies(
-                    UpdateChecker.PROXY_PREFIXES + "", UpdateChecker.API_URL
-                )
-                withContext(Dispatchers.Main) {
-                    btnSpeedTest.isEnabled = true
-                    btnSpeedTest.setText(R.string.update_speed_test)
-                    sourceLatencies = latencies
-                    refreshSourceDropdown()
-                }
-            }
-        }
-
         // 绑定各个 [?] 极简问号说明按钮
         findViewById<ImageButton>(R.id.btnHelpQrBrightness).setOnClickListener {
             showHelpDialog(R.string.help_qr_brightness_title, R.string.help_qr_brightness_message)
@@ -240,9 +208,6 @@ class SettingsActivity : AppCompatActivity() {
         }
         findViewById<ImageButton>(R.id.btnHelpBackMode).setOnClickListener {
             showHelpDialog(R.string.help_back_mode_title, R.string.help_back_mode_message)
-        }
-        findViewById<ImageButton>(R.id.btnHelpUpdateSource).setOnClickListener {
-            showHelpDialog(R.string.help_update_source_title, R.string.help_update_source_message)
         }
     }
 
@@ -254,41 +219,86 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    /** 用测速结果重绘下拉选项(如 "gh-proxy 源1 · 388ms")并保持当前选中项 */
-    private fun refreshSourceDropdown() {
-        val labels = UpdateChecker.UI_SOURCES.map { sourceLabel(it) }.toTypedArray()
-        ddlUpdateSource.setSimpleItems(labels)
-        val selected = UpdateChecker.sourceById(AppSettings(this).updateSourceId)
-        ddlUpdateSource.setText(sourceLabel(selected), false)
-    }
-
-    private fun sourceLabel(source: UpdateSource): String {
-        if (source.prefix == null) return source.label // 自动选择:模式,不显示延迟
-        val ns = sourceLatencies[source.prefix] ?: return source.label
-        return if (ns == Long.MAX_VALUE) {
-            getString(R.string.update_speed_timeout, source.label)
-        } else {
-            "${source.label} · ${ns / 1_000_000}ms"
+    /**
+     * 账号按钮 = 登录 / 切换账号。**切换账号是唯一会"清除所有"的动作**:会话 cookie 与
+     * 已保存的账号密码一起清掉,所以它是真正换一个人的出口。因为它现在还会连带关掉自动续期,
+     * 所以先确认一次再做。
+     *
+     * 未登录时按钮就是普通登录,没什么可清的,直接进登录页。
+     */
+    private fun confirmAccountAction() {
+        if (!WebViewCookieJar.hasEcodeSession()) {
+            startActivity(Intent(this, LoginActivity::class.java))
+            return
         }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.switch_account_confirm_title)
+            .setMessage(R.string.switch_account_confirm_message)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.settings_switch_account) { _, _ ->
+                Log.i(TAG, "切换账号:清除全部会话与已保存的账号密码")
+                WebViewCookieJar.clearAll()
+                CredentialStore(this).clear()
+                startActivity(Intent(this, LoginActivity::class.java))
+            }
+            .show()
     }
 
     override fun onResume() {
         super.onResume()
         // 从"安装未知应用"授权页回来后续上安装
         ApkInstaller.resumePendingInstall(this)
-        // 登录态可能已变化(登录页返回/切换账号),账号按钮文案与状态随之切换
-        val hasSession = WebViewCookieJar.hasEcodeSession()
-        btnAccount.text = getString(
-            if (hasSession) {
-                R.string.settings_switch_account
-            } else {
-                R.string.settings_login
-            }
-        )
-        findViewById<TextView>(R.id.tvAccountStatus).apply {
-            text = getString(if (hasSession) R.string.account_logged_in else R.string.account_not_logged_in)
-            setTextColor(getColor(if (hasSession) R.color.status_pill_text else R.color.md_theme_on_surface_variant))
+        renderAccountState()
+    }
+
+    /**
+     * 账号卡片:(登录状态 · 自动续期状态) + 一个动作按钮。
+     *
+     * 只有状态、没有开关:自动续期在实现上就是"登录时勾选了保存账号密码",开关就在登录页那个
+     * 勾选框上。再放一个"开启/关闭自动续期"按钮,等于给同一件事开两个入口 —— 而且那个入口
+     * 在"本地 TGT 还活着"时根本走不到输入账密那一步,按下去看着就是坏的。
+     * 账号名可以显示,密码永不外露。
+     */
+    private fun renderAccountState() {
+        val loggedIn = WebViewCookieJar.hasEcodeSession()
+        // load() 会解密一次密码,所以先取一份;username() 单独读是为了兜住"密码已被熔断清掉、
+        // 只剩账号名"那种状态(那时自动续期是关的,但账号名还能用)
+        val store = CredentialStore(this)
+        val creds = store.load()
+        val autoRenew = creds != null
+        val savedUser = creds?.username ?: store.username()
+
+        val loginText = getString(if (loggedIn) R.string.account_logged_in else R.string.account_not_logged_in)
+        val renewText = when {
+            autoRenew -> getString(R.string.account_auto_renew_on, savedUser.orEmpty())
+            else -> getString(R.string.account_auto_renew_off)
         }
+        // 未登录但开着自动续期 = 上一次自动登录没成功,把原因说出来,否则用户只会觉得"没登录"
+        val reason = if (!loggedIn && autoRenew) autoRenewFailureReason() else null
+        tvAccountStatus.text = if (reason == null) {
+            getString(R.string.account_status, loginText, renewText)
+        } else {
+            getString(R.string.account_status_with_reason, loginText, renewText, reason)
+        }
+        tvAccountStatus.setTextColor(
+            getColor(if (loggedIn) R.color.status_pill_text else R.color.md_theme_on_surface_variant)
+        )
+
+        btnAccount.text = getString(
+            if (loggedIn) R.string.settings_switch_account else R.string.settings_login
+        )
+    }
+
+    /**
+     * 上一次自动登录为什么没成(只解释"需要人工介入"的两种)。
+     *
+     * 这是原来诊断框里那行"上次结果"里唯一对用户有意义的部分:静默续期失败后界面只会变成
+     * "未登录",而原因(要验证码 / 密码被拒)决定了用户该做什么。
+     */
+    private fun autoRenewFailureReason(): String? = when (SilentLogin.lastOutcome(this)) {
+        "needSecondFactor" -> getString(R.string.auto_renew_last_need_sms)
+        "rejected" -> getString(R.string.auto_renew_last_rejected)
+        else -> null
     }
 
     override fun onDestroy() {
@@ -301,11 +311,9 @@ class SettingsActivity : AppCompatActivity() {
     private fun checkForUpdate() {
         uiState = UpdateUiState.CHECKING
         renderUpdateUi()
-        // 自动模式传 null(API 查询直连优先走代理兜底),手动源则该源优先
-        val preferredPrefix = UpdateChecker.sourceById(AppSettings(this).updateSourceId).prefix
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val result = UpdateChecker().check(currentVersion, preferredPrefix)
+                val result = UpdateChecker().check(currentVersion)
                 withContext(Dispatchers.Main) {
                     when (result) {
                         is UpdateCheckResult.UpToDate -> {
@@ -342,9 +350,8 @@ class SettingsActivity : AppCompatActivity() {
         lastProgressTime = 0L
         uiState = UpdateUiState.DOWNLOADING
         renderUpdateUi()
-        val sourceId = AppSettings(this).updateSourceId
         lifecycleScope.launch(Dispatchers.IO) {
-            downloader.download(release, sourceId, downloadListener)
+            downloader.download(release, downloadListener)
         }
     }
 

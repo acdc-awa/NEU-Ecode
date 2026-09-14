@@ -66,7 +66,6 @@ class PortalClient(
         private const val KEEPALIVE_URL =
             "https://personal.neu.edu.cn/portal/ucs/frontend/msg/index?keyword=&ucs_type=&source=&starttime=&page=1&pagesize=10&status=2"
         private const val PORTAL_HOST = "personal.neu.edu.cn"
-        private const val CAS_HOST = "pass.neu.edu.cn"
     }
 
     /** 兑票结果:OK=门户会话已建立;AUTH_EXPIRED=CASTGC失效;FAILED=链路变化等其他原因 */
@@ -79,6 +78,9 @@ class PortalClient(
     private val sessionLock = ReentrantLock()
 
     // API 不跟随重定向:未登录时门户会 302 去 CAS,直接按失败处理而不是落到登录页 HTML
+    /** 兑票统一交给 CAS 客户端(共享 cookie 罐里的 CASTGC 是唯一凭据) */
+    private val cas = CasAuthClient(client)
+
     private val apiClient = client.newBuilder()
         .followRedirects(false)
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -146,13 +148,17 @@ class PortalClient(
      * 所以看状态码一律"成功";msg/index 更差,它对已登出作废的凭据也返回 e=0。
      * 两者都不能当探针,只有 items/detail 这类数据端点会真的校验(伪造或作废的凭据都返回 e=10013)。
      */
-    private fun isCredentialAlive(): Boolean {
-        val body = getJson(ITEMS_URL) ?: return false
+    private fun isCredentialAlive(): Boolean = probeCredential().first == 0
+
+    /** 打一发 items 并回报 e 字段;-1 表示网络或解析失败。e=0 才是凭据有效 */
+    private fun probeCredential(): Pair<Int, String> {
+        val body = getJson(ITEMS_URL) ?: return -1 to "网络不可达"
         return try {
-            JSONObject(body).optInt("e", -1) == 0
+            val json = JSONObject(body)
+            json.optInt("e", -1) to json.optString("m")
         } catch (e: Exception) {
             Log.w(TAG, "items 响应解析失败: ${body.take(200)}", e)
-            false
+            -1 to "响应解析失败"
         }
     }
 
@@ -195,23 +201,20 @@ class PortalClient(
      * 再用 msg/index 把它的 24h 窗口推满。
      */
     private fun establishViaCas(): EstablishResult {
-        val response = followClient.newCall(
-            Request.Builder().url(CAS_LOGIN_ENTRY_URL).header("User-Agent", UserAgent.current).get().build()
-        ).execute()
-        val landed = response.request.url
-        response.close()
-        Log.d(TAG, "CAS兑票落地: $landed")
-        // 没有有效 TGT 时 CAS 会把 tpass 登录页(200 HTML)直接返回,不会再 302 出票
-        if (landed.host != PORTAL_HOST) {
-            return if (landed.host == CAS_HOST) EstablishResult.AUTH_EXPIRED else EstablishResult.FAILED
+        return when (cas.establishSession(CAS_LOGIN_ENTRY_URL, PORTAL_HOST)) {
+            CasAuthClient.Establish.OK -> {
+                followClient.newCall(
+                    Request.Builder().url(PORTAL_HOME_URL).header("User-Agent", UserAgent.current).get().build()
+                ).execute().close()
+                followClient.newCall(
+                    Request.Builder().url(KEEPALIVE_URL).header("User-Agent", UserAgent.current).get().build()
+                ).execute().close()
+                EstablishResult.OK
+            }
+            // 没有有效 TGT 时 CAS 会把 tpass 登录页直接返回,不再 302 出票
+            CasAuthClient.Establish.NO_TGT -> EstablishResult.AUTH_EXPIRED
+            CasAuthClient.Establish.ELSEWHERE -> EstablishResult.FAILED
         }
-        followClient.newCall(
-            Request.Builder().url(PORTAL_HOME_URL).header("User-Agent", UserAgent.current).get().build()
-        ).execute().close()
-        followClient.newCall(
-            Request.Builder().url(KEEPALIVE_URL).header("User-Agent", UserAgent.current).get().build()
-        ).execute().close()
-        return EstablishResult.OK
     }
 
     /** 返回 card.balance 的数值(如 "50.33");未登录/接口报错/结构变化返回 null */

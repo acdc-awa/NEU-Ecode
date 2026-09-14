@@ -13,7 +13,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * APK 更新包下载器:
- * - 依次尝试代理源与直连,某个源中途失败会换下一个源并带着已下载字节继续
+ * - **GitHub 直连优先**:连接/读取都用 5 秒超时,吃住"5 秒内没有返回"这件事;直连不行才
+ *   对镜像并发测速,按延迟从快到慢依次兜底,某个源中途失败会换下一个源并带着已下载字节继续
  * - 通过 HTTP Range 实现断点续传,.part 临时文件持久在应用外部私有目录,
  *   App 重启后再次下载同一版本会自动接着下
  * - 进度回调统一投递到主线程,做了节流(约 150ms 一次)
@@ -72,6 +73,9 @@ class ApkUpdateDownloader(private val context: Context) {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    /** 直连专用:5 秒内没有响应就当作直连走不通(镜像用它没有意义,镜像本来就慢) */
+    private val directHttp = UpdateChecker.newDirectClient()
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     @Volatile
@@ -81,31 +85,33 @@ class ApkUpdateDownloader(private val context: Context) {
     private var cancelled = false
 
     /** 阻塞下载,直到完成、失败或被 cancel()。在 IO 线程调用。 */
-    fun download(release: ReleaseInfo, sourceId: String?, listener: Listener) {
+    fun download(release: ReleaseInfo, listener: Listener) {
         cancelled = false
         val partFile = partialFile(context, release.versionName)
-        val selected = UpdateChecker.sourceById(sourceId)
-        // 手动源:该源优先,失败按固定顺序换其余源(直连兜底);自动源:并行测速取最快
-        val sources = if (selected.prefix == null) {
-            measureSourceOrder(release)
-        } else {
-            (listOf(selected.prefix) + UpdateChecker.PROXY_PREFIXES + "").distinct()
-        }
         var lastError: String = "未知错误"
 
-        for (source in sources) {
+        // 1) 先试 GitHub 直连:5 秒内没有响应就视为直连不可用(directHttp 的连接/读取都是 5s)
+        try {
+            if (downloadFrom("", release, partFile, listener, directHttp)) return
+        } catch (e: Exception) {
+            if (cancelled) return
+            lastError = e.message ?: e.javaClass.simpleName
+            Log.i(TAG, "GitHub 直连下载失败: $lastError,转镜像测速")
+        }
+
+        // 2) 直连不行:镜像并发测速,最快的最先试,其余按同一顺序兜底(每个失败都续传下一个)
+        for (source in UpdateChecker.orderedProxies(release.apkUrl)) {
             if (cancelled) return
             try {
-                val done = downloadFrom(source, release, partFile, listener)
-                if (done) return
+                if (downloadFrom(source, release, partFile, listener, client)) return
             } catch (e: Exception) {
                 if (cancelled) return
                 lastError = e.message ?: e.javaClass.simpleName
-                Log.w(TAG, "源 $source 下载失败: $lastError,换下一个源继续")
+                Log.w(TAG, "镜像 $source 下载失败: $lastError,换下一个源继续")
             }
         }
         if (cancelled) return
-        Log.e(TAG, "所有源下载失败: $lastError")
+        Log.e(TAG, "直连与所有镜像均下载失败: $lastError")
         mainHandler.post { listener.onFailed(lastError) }
     }
 
@@ -115,30 +121,13 @@ class ApkUpdateDownloader(private val context: Context) {
         activeCall?.cancel()
     }
 
-    /**
-     * 自动选源:对每个源并发测到真实资产 URL 的延迟,按耗时排序(失败排最后),
-     * 返回源前缀顺序。直连("")也参与测速。
-     */
-    private fun measureSourceOrder(release: ReleaseInfo): List<String> {
-        val candidates = UpdateChecker.PROXY_PREFIXES + ""
-        val latencies = UpdateChecker.measureLatencies(candidates, release.apkUrl)
-        val order = candidates.sortedBy { latencies[it] ?: Long.MAX_VALUE }
-        Log.i(
-            TAG, "源测速结果: " + order.joinToString { p ->
-                val ms = latencies[p]?.div(1_000_000) ?: -1
-                val label = if (p.isEmpty()) "直连" else p.removePrefix("https://").removeSuffix("/")
-                "$label=${ms}ms"
-            }
-        )
-        return order
-    }
-
     /** 单源下载,返回 true 表示完成;抛异常表示该源失败(换源续传) */
     private fun downloadFrom(
         sourcePrefix: String,
         release: ReleaseInfo,
         partFile: File,
         listener: Listener,
+        http: OkHttpClient,
     ): Boolean {
         val resumedBytes = if (partFile.exists()) partFile.length() else 0L
         val request = Request.Builder()
@@ -147,7 +136,7 @@ class ApkUpdateDownloader(private val context: Context) {
             // 避免 OkHttp 透明 gzip 干扰 content-length/进度计算
             .header("Accept-Encoding", "identity")
             .build()
-        val call = client.newCall(request)
+        val call = http.newCall(request)
         activeCall = call
         call.execute().use { resp ->
             when {

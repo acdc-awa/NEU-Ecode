@@ -25,15 +25,10 @@ sealed class UpdateCheckResult {
 }
 
 /**
- * 更新下载源。prefix 拼接在完整 github URL 之前,形如
- * "https://gh-proxy.org/https://github.com/...";null 表示自动测速选择。
- * 实测(2026-09):三个代理均支持 release 下载的 Range 断点续传,也均能
- * 转发 api.github.com 的 release 查询。
- */
-data class UpdateSource(val id: String, val label: String, val prefix: String?)
-
-/**
  * 在线更新检查:查询 GitHub 最新 release 并比较版本号。
+ *
+ * 下载源不再让用户选:**GitHub 直连永远优先**,只有在 [DIRECT_TIMEOUT_SEC] 秒内拿不到响应时
+ * 才认为直连不通,转为对镜像并发测速、按延迟从快到慢依次兜底(见 [orderedPrefixes])。
  *
  * 版本号约定为 v<xx.xx.xx>(见 app/build.gradle.kts 的 tag 推导),
  * 比较时按 major/minor/patch 三段数字逐段比较;当前版本在本地 dev 构建
@@ -46,24 +41,15 @@ class UpdateChecker {
         private const val REPO = "acdc-awa/NEU-Ecode"
         const val API_URL = "https://api.github.com/repos/$REPO/releases/latest"
 
-        val SOURCE_AUTO = UpdateSource("auto", "自动选择（测速）", null)
-        val SOURCE_DIRECT = UpdateSource("direct", "GitHub 直连", "")
+        /** 直连容忍时长:超过它没有响应就改走镜像 */
+        const val DIRECT_TIMEOUT_SEC = 5L
 
-        /** 设置页下拉里的完整选项(自动 + 手动源) */
-        val UI_SOURCES = listOf(
-            SOURCE_AUTO,
-            SOURCE_DIRECT,
-            UpdateSource("ghproxy1", "gh-proxy 源1", "https://gh-proxy.org/"),
-            UpdateSource("ghproxy2", "gh-proxy 源2", "https://v4.gh-proxy.org/"),
-            UpdateSource("axisnow", "AxisNow 源", "https://axisnow.gh-proxy.org/"),
+        /** 这些镜像站可用性会随时间变化,失效时增删此列表即可;直连始终优先参与 */
+        val PROXY_PREFIXES: List<String> = listOf(
+            "https://gh-proxy.org/",
+            "https://v4.gh-proxy.org/",
+            "https://axisnow.gh-proxy.org/",
         )
-
-        /** 这些镜像站可用性会随时间变化,失效时增删此列表即可;直连始终参与兜底 */
-        val PROXY_PREFIXES: List<String> =
-            UI_SOURCES.mapNotNull { it.prefix?.takeIf { p -> p.isNotEmpty() } }
-
-        fun sourceById(id: String?): UpdateSource =
-            UI_SOURCES.find { it.id == id } ?: SOURCE_AUTO
 
         /**
          * 解析 "v1.2.3" / "1.2.3" / "1.2.3-3-gabc"(本地 git describe 产物)为
@@ -96,12 +82,11 @@ class UpdateChecker {
         /**
          * 对每个前缀并发发一个 GET [targetUrl],按响应头耗时计延迟(纳秒)。
          * 失败/超时记为 [Long.MAX_VALUE];latch 超时后未返回的源不在 Map 里,调用方按失败处理。
-         * 下载器自动选源(目标=真实资产 URL)和设置页测速(目标=API)共用此逻辑。
          */
         fun measureLatencies(
             prefixes: List<String>,
             targetUrl: String,
-            timeoutSec: Long = 5L,
+            timeoutSec: Long = DIRECT_TIMEOUT_SEC,
         ): Map<String, Long> {
             val latencies = java.util.concurrent.ConcurrentHashMap<String, Long>()
             val latch = java.util.concurrent.CountDownLatch(prefixes.size)
@@ -133,6 +118,28 @@ class UpdateChecker {
             latch.await(timeoutSec + 3, TimeUnit.SECONDS)
             return latencies
         }
+
+        /**
+         * 直连失败后的镜像顺序:并发测速,最快的最先试,失败的排最后(仍留在列表里兜底),
+         * 所以调用方拿到的是一个"全部镜像"的完整顺序,逐个试完为止。
+         */
+        fun orderedProxies(targetUrl: String): List<String> {
+            val latencies = measureLatencies(PROXY_PREFIXES, targetUrl)
+            val order = PROXY_PREFIXES.sortedBy { latencies[it] ?: Long.MAX_VALUE }
+            Log.i(
+                TAG, "直连不可用,镜像测速结果: " + order.joinToString { p ->
+                    val ms = latencies[p]?.div(1_000_000) ?: -1
+                    "${p.removePrefix("https://").removeSuffix("/")}=${ms}ms"
+                }
+            )
+            return order
+        }
+
+        /** 直连尝试用的客户端:连接与读取都用 [DIRECT_TIMEOUT_SEC],把"没返回"卡死在 5 秒 */
+        fun newDirectClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(DIRECT_TIMEOUT_SEC, TimeUnit.SECONDS)
+            .readTimeout(DIRECT_TIMEOUT_SEC, TimeUnit.SECONDS)
+            .build()
     }
 
     private val client = OkHttpClient.Builder()
@@ -140,14 +147,16 @@ class UpdateChecker {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    /** 直连专用:连接/读取都 5 秒,超了就当作直连走不通 */
+    private val directHttp = newDirectClient()
+
     /**
-     * 查询最新 release。[preferredPrefix] 是用户手动选择的源前缀(自动模式传 null):
-     * 三个代理均能转发 API,所以手动源对查询同样生效;首选源失败后按
-     * 直连 → 其余代理 的顺序兜底。全部失败抛 IOException。
+     * 查询最新 release:先试 GitHub 直连(5 秒内必须有响应),直连不行才对镜像测速、
+     * 按快慢依次兜底。全部失败抛 IOException。
      */
-    fun check(currentVersionName: String, preferredPrefix: String? = null): UpdateCheckResult {
-        val release = fetchLatestRelease(preferredPrefix)
-            ?: throw IOException("所有源均无法访问 GitHub")
+    fun check(currentVersionName: String): UpdateCheckResult {
+        val release = fetchLatestRelease()
+            ?: throw IOException("GitHub 直连与所有镜像均无法访问")
         // tag 不符合 v<xx.xx.xx> 约定或没有 APK 资产,视为检查失败而不是误报更新
         val latest = parseVersion(release.tagName)
             ?: throw IOException("最新版本号 ${release.tagName} 无法识别")
@@ -162,35 +171,41 @@ class UpdateChecker {
         }
     }
 
-    private fun fetchLatestRelease(preferredPrefix: String?): ReleaseInfo? {
-        // 首选源(手动选择)在前;自动模式直连优先,失败走代理
-        val rest = listOf("") + PROXY_PREFIXES
-        val candidates = if (preferredPrefix != null) {
-            (listOf(preferredPrefix) + rest).distinct()
-        } else {
-            rest
+    private fun fetchLatestRelease(): ReleaseInfo? {
+        fetchFrom("", directHttp)?.let {
+            Log.i(TAG, "release 查询走 GitHub 直连")
+            return it
         }
-        for (prefix in candidates) {
-            val url = prefix + API_URL
-            try {
-                val request = Request.Builder()
-                    .url(url)
-                    .header("Accept", "application/vnd.github+json")
-                    .header("User-Agent", "NEU-Ecode-App")
-                    .build()
-                client.newCall(request).execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        Log.w(TAG, "查询 release 失败: ${resp.code} ($url)")
-                        return@use
-                    }
-                    val body = resp.body?.string() ?: return@use
-                    return parseRelease(body)
-                }
-            } catch (e: IOException) {
-                Log.w(TAG, "查询 release 网络异常 ($url): ${e.message}")
+        Log.w(TAG, "GitHub 直连在 ${DIRECT_TIMEOUT_SEC}s 内未成功,改用镜像")
+        for (prefix in orderedProxies(API_URL)) {
+            fetchFrom(prefix, client)?.let {
+                Log.i(TAG, "release 查询走镜像 $prefix")
+                return it
             }
         }
         return null
+    }
+
+    private fun fetchFrom(prefix: String, http: OkHttpClient): ReleaseInfo? {
+        val url = prefix + API_URL
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", "NEU-Ecode-App")
+                .build()
+            http.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    Log.w(TAG, "查询 release 失败: ${resp.code} ($url)")
+                    return null
+                }
+                val body = resp.body?.string() ?: return null
+                parseRelease(body)
+            }
+        } catch (e: IOException) {
+            Log.w(TAG, "查询 release 网络异常 ($url): ${e.message}")
+            null
+        }
     }
 
     /** 从 releases/latest JSON 里取第一个 .apk 资产 */

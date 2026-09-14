@@ -40,10 +40,11 @@ class EcodeApiClient(private val client: OkHttpClient) {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    private val renewer = CasSessionRenewer(client)
+    private val cas = CasAuthClient(client)
 
     companion object {
         private const val TAG = "EcodeApi"
+        private const val ECODE_HOST = "ecode.neu.edu.cn"
     }
 
     fun fetchQRCode(): QrFetchResult {
@@ -54,7 +55,7 @@ class EcodeApiClient(private val client: OkHttpClient) {
             }
 
             Log.w(TAG, "fetchQRCode: 首次请求失败(401/token过期),CASTGC 静默续期后重试")
-            if (!renewer.renewEcodeSession()) {
+            if (!renewSession()) {
                 Log.e(TAG, "fetchQRCode: 静默续期失败(CASTGC失效),需重新登录")
                 return QrFetchResult.AuthExpired
             }
@@ -66,6 +67,25 @@ class EcodeApiClient(private val client: OkHttpClient) {
             QrFetchResult.NetworkError
         }
     }
+
+    /**
+     * 只做一次真校验:qr-code 拿到 200 才算这个会话真的可用。不续期、不改任何状态。
+     *
+     * 用它当"登录是否真的成功"的判据,而不是看 cookie 在不在 —— SESSION 是约 100 天的持久
+     * cookie,它还在完全不代表服务端还认它(2026-09 的无限闪屏就是拿它当成功的后果)。
+     */
+    fun hasAuthenticatedSession(): Boolean = tryFetch() != null
+
+    /**
+     * 靠共享 cookie 罐里活着的 CASTGC 换票,并跟随到 ecode 把票消费掉 —— 消费那一跳
+     * 才会把 SESSION 会话槽标记为已认证(票本身不签发新 cookie)。
+     *
+     * 只看"是否落到 ecode 主机",**不掺 `hasEcodeSession()`**:那是在用"cookie 存在"当凭据
+     * (SESSION 是约 100 天的持久 cookie,在不在与服务端认不认它是两件事,见 AGENTS.md)。
+     * 换票成功与否由调用方紧接着的那次重试拉码来判定,那才是真校验。
+     */
+    private fun renewSession(): Boolean =
+        cas.establishSession(CasAuthClient.ECODE_ENTRY, ECODE_HOST) == CasAuthClient.Establish.OK
 
     /** 成功返回 Success;HTTP 非 200/解析失败返回 null(交给续期流程兜底);IOException 向上抛 */
     private fun tryFetch(): QrFetchResult.Success? {

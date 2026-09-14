@@ -20,5 +20,4 @@
     <color name="qr_canvas_background">#FFFFFF</color>
     <color name="status_pill_background">#1B3B2B</color>
     <color name="status_pill_text">#81C784</color>
-    <color name="status_pill_dot">#66BB6A</color>
 </resources>

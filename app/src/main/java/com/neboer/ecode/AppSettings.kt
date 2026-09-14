@@ -24,11 +24,6 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_QR_SHOW_ON_LAUNCH, true)
         set(value) = prefs.edit().putBoolean(KEY_QR_SHOW_ON_LAUNCH, value).apply()
 
-    /** 更新下载源,取值见 UpdateChecker.UI_SOURCES 的 id,默认自动测速 */
-    var updateSourceId: String
-        get() = prefs.getString(KEY_UPDATE_SOURCE, "auto") ?: "auto"
-        set(value) = prefs.edit().putString(KEY_UPDATE_SOURCE, value).apply()
-
     /** 二维码展示时的亮度/高亮模式,默认全屏最高亮度(传统);HDR 局部高亮为实验性功能 */
     var qrBrightnessMode: QrBrightnessMode
         get() = when (prefs.getString(KEY_QR_BRIGHTNESS_MODE, "full")) {
@@ -42,7 +37,8 @@ class AppSettings(context: Context) {
         private const val PREF_NAME = "ecode_settings"
         private const val KEY_BACK_PRESS_MODE = "back_press_mode"
         private const val KEY_QR_SHOW_ON_LAUNCH = "qr_show_on_launch"
-        private const val KEY_UPDATE_SOURCE = "update_source"
         private const val KEY_QR_BRIGHTNESS_MODE = "qr_brightness_mode"
+        // 更新下载源曾是可选项(update_source),2026-09-14 起改为"直连优先 + 5 秒后转镜像测速",
+        // 那个 key 不再读写;老版本留下的值留着不清理也无害
     }
 }

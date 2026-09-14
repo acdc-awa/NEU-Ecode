@@ -1,20 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  原生登录页(默认路径):账密表单 / 二次验证 / 登录失败 三张卡片,同一页里切换,
+  由 LoginActivity.showOnly() 控制哪一张可见。
+
+  版式与 activity_settings.xml 一致:16dp 页面内边距 + colorSurfaceContainer 卡片
+  (16dp 圆角、1dp colorOutlineVariant 描边)、卡片标题 15sp 粗体、说明 12sp
+  colorOnSurfaceVariant、按钮 13sp(主操作 TonalButton、次要 TextButton)。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/rootLoginLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="?android:colorBackground"
     android:orientation="vertical">
 
-    <!-- 顶部工具条:适配 WindowInsets -->
+    <!-- 标准 Material 3 Toolbar 标题栏:自动适配 WindowInsets -->
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/toolbarLogin"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        app:navigationContentDescription="@string/login_close"
-        app:navigationIcon="@drawable/ic_close"
-        app:navigationIconTint="?attr/colorOnSurfaceVariant"
+        app:navigationContentDescription="@string/action_back"
+        app:navigationIcon="@drawable/ic_arrow_back"
+        app:navigationIconTint="?attr/colorOnSurface"
         app:title="@string/login_toolbar_title"
         app:titleTextColor="?attr/colorOnSurface" />
 
@@ -22,23 +31,370 @@
         android:id="@+id/progressLogin"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:indeterminate="false"
-        android:max="100"
-        android:progress="0"
+        android:indeterminate="true"
         android:visibility="gone" />
 
-    <WebView
-        android:id="@+id/webView"
+    <!-- 进行中的那一步在做什么(取表单 / 提交中 / 校验中),否则只有一根进度条在转 -->
+    <TextView
+        android:id="@+id/tvLoginProgress"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="8dp"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:textSize="12sp"
+        android:visibility="gone"
+        tools:text="正在登录…" />
+
+    <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:padding="16dp">
 
-    <!-- 兑票落地后到切屏之间的过渡提示:使用 M3 语义色卡片 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- ── 卡片一:账密 ───────────────────────────────────────── -->
+            <LinearLayout
+                android:id="@+id/groupCredentials"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    app:cardBackgroundColor="?attr/colorSurfaceContainer"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="1dp"
+                    app:strokeColor="?attr/colorOutlineVariant"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/login_card_title"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/login_intro"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="12sp" />
+
+                        <!-- 关掉自动填充:这是应用自己要存的同一份凭据,不该被系统/第三方
+                             密码管理器顺走 -->
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
+                            android:hint="@string/login_username_hint">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/etUsername"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:imeOptions="actionNext"
+                                android:importantForAutofill="no"
+                                android:inputType="text"
+                                android:maxLines="1" />
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:hint="@string/login_password_hint"
+                            app:endIconMode="password_toggle">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/etPassword"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:imeOptions="actionDone"
+                                android:importantForAutofill="no"
+                                android:inputType="textPassword"
+                                android:maxLines="1" />
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                        <com.google.android.material.checkbox.MaterialCheckBox
+                            android:id="@+id/cbSaveCredentials"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:text="@string/login_save_credentials"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/tvError"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:textColor="?attr/colorError"
+                            android:textSize="12sp"
+                            android:visibility="gone"
+                            tools:text="账号或密码不正确" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnLogin"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:text="@string/login_submit"
+                            android:textSize="13sp" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+
+            <!-- ── 卡片二:二次验证 ───────────────────────────────────── -->
+            <LinearLayout
+                android:id="@+id/groupSecondFactor"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    app:cardBackgroundColor="?attr/colorSurfaceContainer"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="1dp"
+                    app:strokeColor="?attr/colorOutlineVariant"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/login_2fa_title"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/login_2fa_hint"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="12sp" />
+
+                        <!-- 图形验证码:点图或点"换一张"都重新取 -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <ImageView
+                                android:id="@+id/ivCaptcha"
+                                android:layout_width="120dp"
+                                android:layout_height="48dp"
+                                android:background="?attr/colorSurfaceContainerHigh"
+                                android:contentDescription="@string/login_2fa_captcha_hint"
+                                android:scaleType="fitCenter" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnRefreshCaptcha"
+                                style="@style/Widget.Material3.Button.TextButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="4dp"
+                                android:text="@string/login_2fa_captcha_refresh"
+                                android:textSize="13sp" />
+                        </LinearLayout>
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:hint="@string/login_2fa_captcha_hint">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/etCaptcha"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:imeOptions="actionNext"
+                                android:inputType="text"
+                                android:maxLines="1" />
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                        <!-- 这一下才真的发短信(全应用唯一入口),所以文案要说清是"获取" -->
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSendSms"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:text="@string/login_2fa_send_sms"
+                            android:textSize="13sp" />
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:id="@+id/tilSmsCode"
+                            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:hint="@string/login_2fa_sms_hint">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/etSmsCode"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:imeOptions="actionDone"
+                                android:inputType="number"
+                                android:maxLines="1" />
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                        <TextView
+                            android:id="@+id/tv2faError"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:textColor="?attr/colorError"
+                            android:textSize="12sp"
+                            android:visibility="gone"
+                            tools:text="验证码不正确，已换一张图形码，请重试" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSubmit2fa"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:text="@string/login_2fa_submit"
+                            android:textSize="13sp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnRestartLogin"
+                            style="@style/Widget.Material3.Button.TextButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/login_2fa_restart"
+                            android:textSize="13sp" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+
+            <!-- ── 卡片三:登录失败(含原生做不了的验证方式) ───────────── -->
+            <LinearLayout
+                android:id="@+id/groupLoadError"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    app:cardBackgroundColor="?attr/colorSurfaceContainer"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="1dp"
+                    app:strokeColor="?attr/colorOutlineVariant"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/login_error_title"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tvLoadError"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="12sp"
+                            tools:text="打不开登录页：网络不可达，请检查网络后重试" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnRetry"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:text="@string/login_retry"
+                            android:textSize="13sp" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+
+            <!-- ── 网页登录(兼容模式):常驻,不随面板切换 ──────────────────
+                 整个应用是屏幕抓取,校方改版可能让原生解析整个失灵,而"登录"是唯一不能
+                 失灵的功能;学校要求微信扫码这类原生做不了的验证方式时,也只有这条路。
+                 放页面底部而不是塞进失败面板:失败面板只在出错时可见,而这条路要在任何
+                 时候都够得着。 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="center_horizontal"
+                android:orientation="vertical">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnWebLogin"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/login_web_compat"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="@string/login_web_compat_note"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- 成功后的过渡提示:与主界面状态药丸同一套语义色 -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/cardLoginStatus"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="20dp"
+        android:layout_margin="16dp"
         android:visibility="gone"
         app:cardBackgroundColor="@color/status_pill_background"
         app:cardCornerRadius="16dp"
@@ -46,14 +402,13 @@
         app:strokeWidth="0dp">
 
         <TextView
-            android:id="@+id/tvLoginStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:padding="14dp"
             android:text="@string/login_success_entering"
             android:textColor="@color/status_pill_text"
-            android:textSize="14sp"
+            android:textSize="12sp"
             android:textStyle="bold" />
     </com.google.android.material.card.MaterialCardView>
 

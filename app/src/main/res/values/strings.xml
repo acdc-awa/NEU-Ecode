@@ -11,6 +11,17 @@
     <string name="settings_login">登录</string>
     <string name="account_logged_in">已登录</string>
     <string name="account_not_logged_in">未登录</string>
+    <!-- 账号卡片第二段:自动续期状态。它只有状态、没有开关 —— 开关在登录页那个勾选框上 -->
+    <string name="account_auto_renew_on">自动续期已开启（%1$s）</string>
+    <string name="account_auto_renew_off">自动续期未开启</string>
+    <!-- 账号卡片的状态行:登录状态 · 自动续期状态（· 上次失败原因） -->
+    <string name="account_status">%1$s · %2$s</string>
+    <string name="account_status_with_reason">%1$s · %2$s · %3$s</string>
+    <!-- 只写原因本身:它前面已经是"未登录 · 自动续期已开启（账号）",再加"上次自动登录:"就重复了 -->
+    <string name="auto_renew_last_need_sms">需要验证码</string>
+    <string name="auto_renew_last_rejected">密码已失效</string>
+    <string name="switch_account_confirm_title">切换账号？</string>
+    <string name="switch_account_confirm_message">将退出当前登录，并清除已保存的账号密码，自动续期随之关闭。</string>
 
     <string name="settings_navigation_section">偏好设置</string>
     <string name="settings_qr_brightness_mode">二维码高亮方式</string>
@@ -50,15 +61,54 @@
 
     <!-- 登录流程 -->
     <string name="login_action">去登录</string>
-    <string name="login_close">关闭</string>
     <string name="login_toolbar_title">统一身份认证登录</string>
     <string name="login_success_entering">登录成功，正在进入…</string>
 
-    <!-- 在线更新 -->
-    <string name="update_source_label">下载源</string>
-    <string name="update_speed_test">测速</string>
-    <string name="update_speed_testing">测速中…</string>
-    <string name="update_speed_timeout">%1$s · 超时</string>
+    <!-- 原生登录表单(阶段二:交互登录不再套 WebView,与静默续期共用 CasAuthClient) -->
+    <string name="login_card_title">统一身份认证</string>
+    <string name="login_error_title">登录失败</string>
+    <string name="login_intro">使用统一身份认证账号登录，密码只发给学校服务器。</string>
+    <string name="login_username_hint">工号/学号</string>
+    <string name="login_password_hint">密码</string>
+    <string name="login_submit">登录</string>
+    <string name="login_save_credentials">保存账号密码，自动续期</string>
+    <string name="login_loading_form">正在打开统一身份认证登录页…</string>
+    <string name="login_signing_in">正在登录…</string>
+    <string name="login_verifying">正在校验登录结果…</string>
+    <string name="login_retry">重试</string>
+    <string name="login_web_compat">网页登录（兼容模式）</string>
+    <string name="login_web_compat_note">原生登录不可用时的备用入口</string>
+    <string name="login_error_empty_username">请输入工号/学号</string>
+    <string name="login_error_empty_password">请输入密码</string>
+    <string name="login_error_bad_credentials">账号或密码不正确</string>
+    <string name="login_error_unclear">登录失败：%1$s</string>
+    <string name="login_error_network">网络不可达，请检查网络后重试</string>
+    <string name="login_error_load_form">打不开登录页：%1$s</string>
+    <string name="login_error_consume">未能建立会话，请重试或改用网页登录</string>
+    <string name="login_saved_password_invalid">保存的密码已失效，请重新输入</string>
+
+    <!-- 原生二次验证(图形码 + 短信/邮箱码) -->
+    <string name="login_2fa_title">二次验证</string>
+    <string name="login_2fa_hint">先填图形验证码，再获取并填写短信验证码。短信只在你点按钮时发出。</string>
+    <string name="login_2fa_captcha_hint">图形验证码</string>
+    <string name="login_2fa_captcha_refresh">换一张</string>
+    <string name="login_2fa_captcha_failed">图形验证码加载失败，点“换一张”重试</string>
+    <string name="login_2fa_sms_hint">短信验证码</string>
+    <string name="login_2fa_email_hint">邮箱验证码</string>
+    <string name="login_2fa_send_sms">获取短信验证码</string>
+    <string name="login_2fa_send_email">获取邮箱验证码</string>
+    <string name="login_2fa_sending">正在请求验证码…</string>
+    <string name="login_2fa_send_sent">验证码已发送，请查收</string>
+    <string name="login_2fa_send_rejected">验证码发送失败，请重试</string>
+    <string name="login_2fa_submit">提交</string>
+    <string name="login_2fa_restart">换个账号重新登录</string>
+    <string name="login_2fa_error_empty_captcha">请先填图形验证码</string>
+    <string name="login_2fa_error_empty_code">请填验证码</string>
+    <string name="login_2fa_error_code">验证码不正确，已换一张图形码，请重试</string>
+    <string name="login_2fa_expired">验证已失效，请重新登录</string>
+    <string name="login_2fa_unsupported">学校要求的验证方式暂不支持，请改用网页登录</string>
+
+    <!-- 在线更新:下载源不再让用户选,直连优先、5 秒无响应才转镜像测速 -->
     <string name="settings_check_update">检查更新</string>
     <string name="update_checking">正在检查更新…</string>
     <string name="update_up_to_date">已是最新版本（v%1$s）</string>
@@ -74,17 +124,21 @@
 
     <!-- [?] 按需说明文案 -->
     <string name="help_main_title">E码通使用说明</string>
-    <string name="help_main_message">1. 自动提亮：进入前台出示二维码时自动调至最高亮度，便于闸机扫码识别。\n\n2. 隐私防窥：轻触二维码卡片任意区域可快速隐藏，再次轻触重新显示。\n\n3. 自动续期：二维码失效前会在前台自动静默刷新。</string>
+    <string name="help_main_message">1. 自动提亮：出示二维码时自动调到最高亮度，便于闸机识别。\n\n2. 隐私防窥：轻触二维码卡片可隐藏，再轻触恢复显示。\n\n3. 自动续期：二维码失效前会在前台自动刷新。</string>
 
     <string name="help_back_mode_title">返回退出方式说明</string>
-    <string name="help_back_mode_message">1. 双击防误触退出（推荐）：在主界面连续按两次返回键才退出应用，防止扫码时手势滑动误关。\n\n2. 单次退出：按一次返回键即刻退出应用。</string>
-
-    <string name="help_update_source_title">下载源说明</string>
-    <string name="help_update_source_message">1. 自动选择（推荐）：下载前并发测试各加速节点延迟，自动选用最快的线路。\n\n2. 代理镜像：通过国内高速镜像加速 GitHub Releases 下载，均支持断点续传。</string>
+    <string name="help_back_mode_message">1. 双击防误触退出（推荐）：连续按两次返回键才退出，防止扫码时手势误关。\n\n2. 单次退出：按一次返回键即刻退出。</string>
 
     <string name="help_qr_brightness_title">二维码高亮方式说明</string>
-    <string name="help_qr_brightness_message">1. 全屏最高亮度（默认）：传统模式，展示二维码时将整个屏幕调至最高亮度。\n\n2. HDR 局部高亮（实验性）：在支持 HDR 的屏幕上，通过 Ultra HDR 增益遮罩仅将二维码白底提亮至峰值亮度，增强扫码识别率的同时保持应用其余部分为正常系统亮度，避免全屏强光刺眼。该功能为实验性功能，部分机型可能存在兼容性问题（如二维码发暗、颜色异常），如遇异常请切换回"全屏最高亮度"模式。\n\n3. 跟随系统亮度：保持手机当前系统亮度，不进行额外提亮。</string>
+    <string name="help_qr_brightness_message">1. 全屏最高亮度（默认）：展示二维码时把整个屏幕调到最亮。\n\n2. HDR 局部高亮（实验性）：仅把二维码白底提亮到峰值亮度，屏幕其余部分维持系统亮度，避免全屏强光刺眼。部分机型可能不兼容（二维码发暗、颜色异常），遇到就切回“全屏最高亮度”。\n\n3. 跟随系统亮度：不做额外提亮。</string>
 
     <string name="help_qr_launch_title">开屏二维码显示说明</string>
-    <string name="help_qr_launch_message">1. 打开应用时直接显示：启动后立即展示二维码，方便第一时间出示扫码。\n\n2. 打开应用时先隐藏：启动后二维码处于隐藏状态，轻触卡片再显示，防止旁人窥见。该偏好只决定每次打开应用时的初始状态，使用中轻触卡片的显示/隐藏切换不会被记住。</string>
+    <string name="help_qr_launch_message">1. 打开应用时直接显示：启动后立即展示二维码，方便出示扫码。\n\n2. 打开应用时先隐藏：启动后需轻触卡片才显示，防止旁人窥见。该偏好只决定每次打开应用时的初始状态，使用中的显示/隐藏切换不会被记住。</string>
+
+    <!-- 登录/自动续期在后台自动进行时的状态提示 -->
+    <string name="silent_login_running">登录已过期，正在自动重新登录…</string>
+    <string name="silent_login_failed">自动续期失败，请手动登录</string>
+
+    <string name="help_credential_title">账号与自动续期说明</string>
+    <string name="help_credential_message">1. 为什么需要：统一身份认证票据（CASTGC）只有 2 小时寿命且无法续期。过期后二维码仍可用，但“余额”需要重新登录才能恢复。\n\n2. 开启方式：登录时勾选“保存账号密码，自动续期”。仅在登录成功后保存，取消勾选并登录成功即关闭。密码由系统密钥库（AndroidKeyStore）加密保存，应用数据不参与系统备份。\n\n3. 工作方式：票据失效时在后台自动重新登录，成功后立即恢复余额与二维码。它始终使用保存的那个账号。\n\n4. 需要二次验证时：应用会停下并把验证页交给你填——它不会替你发短信，也不会反复尝试。密码若已更改，连续失败两次后自动停止并清除保存的密码。</string>
 </resources>

@@ -48,11 +48,14 @@ class MainActivity : AppCompatActivity() {
         private const val NET_RETRY_MAX_MS = 30_000L
 
         /**
-         * 门户会话保活间隔。CASTGC 只有 2 小时且无法静默续期,而门户余额靠的
-         * SESS_ID 只在 msg/index 这类端点上续 24 小时窗口,所以前台定期打一发,
-         * 用户只要 24 小时内开过应用,余额就不会失效。
+         * 门户会话保活间隔。CASTGC 只有 2 小时且无法续期,门户余额靠的 CK_LC/CK_VL 只能
+         * 由"兑一次票"重新签发,所以前台定期打一发:凭据还活着就把 SESS_ID 窗口往后推,
+         * 已经死了就在 CASTGC 还在的 2 小时窗口内静默重建。
          */
         private const val PORTAL_KEEPALIVE_INTERVAL_MS = 30 * 60 * 1000L
+
+        /** 另有一发静默重登在跑时,等它收场再重试拉码的间隔(见 AuthExpired 分支) */
+        private const val SILENT_RELOGIN_WAIT_MS = 3_000L
     }
 
     private lateinit var apiClient: EcodeApiClient
@@ -90,6 +93,123 @@ class MainActivity : AppCompatActivity() {
     /** 本次会话是否已自动拉过一次余额(登录成功回主界面刷一次,之后仅手动) */
     private var balanceAutoLoaded: Boolean = false
 
+    private lateinit var credentialStore: CredentialStore
+
+    /**
+     * 上一次静默重登"成功"之后二维码又立刻报会话失效。
+     *
+     * 现在的"成功"已经带真校验(换到票 + `qr-code` 200)了,所以这种情况理论上不该出现;
+     * 留着它是因为"服务端行为会变"是常态,而一旦出现,再静默重试也救不回来 ——
+     * 只给一次机会,第二次直接降级成空态,把决定权交回用户,避免变成看不见的死循环。
+     * 拉码成功即清掉,所以它只描述"这一轮失效"。
+     *
+     * 它在 AuthExpired 分支里与 `SilentLogin.decide()` **并列**判断,不能只放在 decide() 的
+     * 非 ALLOW 分支里:成功后写下的 60s 冷却一过,ALLOW 就会回来,那样这道门等于失效。
+     */
+    private var silentReloginUnhelpful = false
+
+    /** 正在跑的静默重登。同时只允许一发:两个触发点可能同时判定会话失效 */
+    private var silentLoginJob: Job? = null
+
+    /**
+     * 静默重登的入口:一个普通协程,不经过任何界面([SilentRelogin] 直接走 CAS 协议)。
+     *
+     * 三个结局各自的收场是"登录与自动续期融为一体"的关键:
+     * - [SilentLoginOutcome.Success] 补做原先失败的那件事(继续拉码 / 重查余额)
+     * - [SilentLoginOutcome.NeedSecondFactor] 把用户送到登录页的二次验证面板接着做
+     * - 其余(网络异常、没存账密、冷却、熔断)干净降级,由用户自己决定要不要手动登录
+     *
+     * 返回 true = 这一发归本方法收场;返回 false = 已有一发在跑,本次既没登录也没回调。
+     * 调用方必须区分这两件事:**返回 false 时不会有人替它收场**,它得自己决定等还是降级
+     * (二维码那条路就靠这个返回值避免把刷新循环停在一发它并不拥有的重登上)。
+     */
+    private fun runSilentRelogin(onSuccess: () -> Unit, onFailure: () -> Unit): Boolean {
+        if (silentLoginJob?.isActive == true) {
+            Log.i(TAG, "已有一发静默重登在跑,本次跳过")
+            return false
+        }
+        silentLoginJob = lifecycleScope.launch {
+            val outcome = SilentRelogin.run(this@MainActivity, credentialStore)
+            Log.i(TAG, "静默重登结局: ${SilentLogin.nameOf(outcome)}")
+            when (outcome) {
+                SilentLoginOutcome.Success -> {
+                    // 直接置为已登录:这一发的"成功"是 [SilentRelogin] 里那次真校验
+                    // (qr-code 200)证明的,比"本地 cookie 里有 SESSION"更强。两者不一致只
+                    // 可能是会话在验完之后又掉了,记一行日志留证,但不因此把界面打回空态
+                    if (!WebViewCookieJar.hasEcodeSession()) {
+                        Log.w(TAG, "静默重登已通过真校验,但本地读不到 SESSION cookie")
+                    }
+                    loggedIn = true
+                    renderSessionState()
+                    onSuccess()
+                }
+
+                // 账密是对的,只差一个验证码。这一刻用户就在屏幕前,而应用自己不能也不会
+                // 替他发短信 —— 所以把这一发直接交给登录页的二次验证面板收尾,表单沿用
+                // 刚才那张(服务端已经接受了这次账密),用户只需填一次验证码
+                is SilentLoginOutcome.NeedSecondFactor -> {
+                    Log.i(TAG, "静默续期需要二次验证,转交登录页继续(复用已通过账密的二验表单)")
+                    onFailure()
+                    openLoginForSecondFactor(outcome.form)
+                }
+
+                SilentLoginOutcome.Rejected -> {
+                    // 存的那份账密已被服务端否定。让用户去登录页重来一次,并且**不要把那个
+                    // 已知错误的密码再预填回去**;连续两次被拒会熔断,那时保存的密码也会被清掉
+                    Log.w(TAG, "保存的账号密码被拒,转交登录页重新登录")
+                    onFailure()
+                    openLoginForPasswordInvalid()
+                }
+
+                is SilentLoginOutcome.Error -> {
+                    Toast.makeText(this@MainActivity, R.string.silent_login_failed, Toast.LENGTH_LONG).show()
+                    onFailure()
+                }
+
+                // 没执行:账本里已记了原因(没存账密/冷却/熔断),安静降级即可 ——
+                // 退出到空态本身就是"需要你手动登录一次"的信号
+                SilentLoginOutcome.Unavailable -> {
+                    Log.i(
+                        TAG,
+                        "静默重登未执行(${SilentLogin.describe(this@MainActivity, credentialStore)}),退回空态",
+                    )
+                    onFailure()
+                }
+            }
+        }
+        return true
+    }
+
+    /** 打开登录页的二次验证面板,带上刚才那张已被服务端接受的表单 */
+    private fun openLoginForSecondFactor(form: CasSecondFactorForm) {
+        if (isFinishing || isDestroyed) return
+        Log.i(TAG, "转到登录页二次验证面板")
+        startActivity(LoginActivity.intentForSecondFactor(this, form))
+    }
+
+    /** 打开登录页,提示保存的密码已失效(账号预填、密码清空) */
+    private fun openLoginForPasswordInvalid() {
+        if (isFinishing || isDestroyed) return
+        Log.i(TAG, "转到登录页,保存的密码已失效")
+        startActivity(LoginActivity.intentForInvalidPassword(this))
+    }
+
+    /**
+     * 二维码会话确实死了(CASTGC 失效、静默重登也没救回来):退回空态让用户手动登录。
+     *
+     * 只清 ecode 域自己的 cookie,保留 CASTGC 与门户凭据(CK_LC/CK_VL)——一次"二维码会话
+     * 过期"不该把还能用的余额一起废掉,逼出一次本可避免的完整重新登录。
+     */
+    private fun degradeQrSession() {
+        Log.w(TAG, "二维码会话已失效,只清 ecode 域 cookie,保留 CASTGC 与门户凭据")
+        WebViewCookieJar.clearEcodeSession()
+        loggedIn = false
+        // 这一轮已经认输了,把"静默没救活"的记账清掉:用户手动登录回来后是全新的一轮
+        silentReloginUnhelpful = false
+        renderSessionState()
+        tvStatus.text = getString(R.string.login_expired)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d(TAG, "onCreate")
@@ -110,6 +230,11 @@ class MainActivity : AppCompatActivity() {
         btnSettings = findViewById(R.id.btnSettings)
 
         settings = AppSettings(this)
+        credentialStore = CredentialStore(this)
+        // 统一客户端标识:静默重登现在由原生 OkHttp 直接发 CAS 请求,如果等到用户手动打开
+        // 登录页才对齐 UA,那之前发出的请求都会顶着兜底 UA(与 WebView 不一致)。
+        // 这一步只是问 WebView 提供方要一个默认 UA,并不会创建 WebView。
+        UserAgent.adoptWebViewUserAgent(this)
 
         originalBrightness = readSystemBrightness()
 
@@ -122,10 +247,10 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-        // 会话唯一来源 = CookieManager(WebView 登录种下),OkHttp 经 WebViewCookieJar 共享
-        val okHttpClient = okhttp3.OkHttpClient.Builder()
-            .cookieJar(WebViewCookieJar())
-            .build()
+        // 会话唯一来源 = CookieManager(WebView 登录种下),OkHttp 经 WebViewCookieJar 共享。
+        // 2026-09-14 起是全局单例:静默重登现在由原生 OkHttp 直接发 CAS 请求,主界面/登录页/
+        // 设置页都必须落在同一份 cookie 上,否则"静默换到的票"和"界面看到的会话"会是两回事
+        val okHttpClient = AppHttp.client
 
         apiClient = EcodeApiClient(okHttpClient)
         portalClient = PortalClient(okHttpClient)
@@ -199,7 +324,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 空态"去登录"按钮:拉起 WebView 登录页,成功后登录页会 CLEAR_TOP 回到这里 */
+    /** 空态"去登录"按钮:原生登录表单;成功后登录页 CLEAR_TOP 回到这里 */
     private fun openLogin() {
         startActivity(Intent(this, LoginActivity::class.java))
     }
@@ -208,12 +333,19 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         originalBrightness = readSystemBrightness()
 
-        // 从登录页/设置页回来:登录态可能已变化(WebView 种下 XSRF-TOKEN 或被切换账号清空)
-        val hasSession = WebViewCookieJar.hasEcodeSession()
-        if (hasSession != loggedIn) {
-            Log.d(TAG, "登录态变化: $loggedIn -> $hasSession")
-            loggedIn = hasSession
-            renderSessionState()
+        // 从登录页/设置页回来:登录态可能已变化(登录成功种下 SESSION 或被切换账号清空)。
+        // 但静默重登途中不重判:那一刻本地 cookie 本来就不代表最终状态,重判会把界面翻成
+        // 未登录,并连带取消正在救场的刷新循环
+        if (silentLoginJob?.isActive != true) {
+            val hasSession = WebViewCookieJar.hasEcodeSession()
+            if (hasSession != loggedIn) {
+                Log.d(TAG, "登录态变化: $loggedIn -> $hasSession")
+                // 重新登录回来了:余额该跟着刷一次。不重置的话这个标记还停在上一轮登录的 true,
+                // 于是刚登录完余额显示"未知"、非得手点一下才出来
+                if (hasSession) balanceAutoLoaded = false
+                loggedIn = hasSession
+                renderSessionState()
+            }
         }
 
         // 高亮模式可能在设置页被修改:如果 HDR 激活状态发生变化且已有二维码，重新生成位图以挂载/移除 Gainmap
@@ -287,6 +419,8 @@ class MainActivity : AppCompatActivity() {
                 when (result) {
                     is QrFetchResult.Success -> {
                         netRetryMs = NET_RETRY_BASE_MS
+                        // 真拉到码了才说明会话是活的:清掉"静默重登没救活"的记账
+                        silentReloginUnhelpful = false
                         currentQrCode = result.qrCode
                         lastAppliedHdr = isHdrHighlightActive()
                         val bitmap = withContext(Dispatchers.Default) {
@@ -315,13 +449,50 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     QrFetchResult.AuthExpired -> {
-                        // 只清 ecode 自己的会话:CASTGC 与门户凭据(CK_LC/CK_VL)留着,
-                        // 否则一次"二维码会话过期"会把还能用的余额一起废掉,逼出一次完整重新登录
-                        Log.w(TAG, "ecode 会话已失效,只清 ecode 域 cookie,保留 CASTGC 与门户凭据")
-                        WebViewCookieJar.clearEcodeSession()
-                        loggedIn = false
-                        renderSessionState()
-                        tvStatus.text = getString(R.string.login_expired)
+                        val decision = SilentLogin.decide(this@MainActivity, credentialStore)
+                        // 能自己发起一发,就交给它收场(它的成功回调会重新拉起本循环),本轮到此结束。
+                        //
+                        // silentReloginUnhelpful 是 decide() 之外单独的一道门:它记的是"上一发自报
+                        // 成功却没能救活二维码"。不能指望 decide() 拦住第二次 —— record(Success)
+                        // 只写 60s 冷却,冷却一过 ALLOW 又会回来,于是"成功但没用"会被无限重复。
+                        val started = decision == SilentLogin.Decision.ALLOW &&
+                            !silentReloginUnhelpful &&
+                            runSilentRelogin(
+                                onSuccess = {
+                                    silentReloginUnhelpful = true
+                                    startQRRefresh()
+                                },
+                                onFailure = { degradeQrSession() },
+                            )
+                        if (started) {
+                            Log.w(TAG, "ecode 会话已失效,已发起静默重登,本轮循环结束由它收场")
+                            tvStatus.text = getString(R.string.silent_login_running)
+                            return@launch
+                        }
+
+                        // 没发起(或没发起来)时,只要还有一发在跑就**不能结束循环**:那一发可能由
+                        // 余额那条路发起,它的成功回调只会重查余额,不会拉起本循环 —— 停在原地等,
+                        // 会话被它救活就自然接上;没救活则下一轮 decide() 已是冷却/熔断,落到下面的降级。
+                        // 等待是有界的:静默重登自身有 15–20s 的 HTTP 超时,且结局必然记账。
+                        val anotherInFlight = decision == SilentLogin.Decision.IN_FLIGHT ||
+                            (decision == SilentLogin.Decision.ALLOW && !silentReloginUnhelpful)
+                        if (anotherInFlight) {
+                            Log.i(TAG, "已有静默重登在跑,等待其结束后重试拉码")
+                            tvStatus.text = getString(R.string.silent_login_running)
+                            delay(SILENT_RELOGIN_WAIT_MS)
+                            continue
+                        }
+
+                        if (silentReloginUnhelpful) {
+                            Log.w(TAG, "上次静默重登自报成功但二维码依旧失效,不再重试,退回空态")
+                        } else {
+                            // 没存账密/冷却中/已熔断:日志里记下是哪一道门挡的
+                            Log.i(
+                                TAG,
+                                "静默重登不可用(${SilentLogin.describe(this@MainActivity, credentialStore)}),直接降级",
+                            )
+                        }
+                        degradeQrSession()
                         return@launch
                     }
 
@@ -358,10 +529,25 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 BalanceResult.SessionExpired -> {
-                    Log.w(TAG, "余额会话已过期(CASTGC失效),需重新登录")
-                    Toast.makeText(this@MainActivity, R.string.balance_session_expired, Toast.LENGTH_LONG)
-                        .show()
-                    tvBalance.text = getString(R.string.balance_unknown)
+                    // CK_LC/CK_VL 只能靠兑票重新签发,而兑票需要活的 CASTGC —— 这正是
+                    // "余额在一段时间后必然失效"的根因,所以这里先试一次静默重登
+                    Log.w(TAG, "余额会话已过期(CASTGC失效),尝试静默重登")
+                    tvBalance.text = getString(R.string.balance_loading)
+                    val started = runSilentRelogin(
+                        // 换到新 TGT 后余额流程会自己经 cas_login 兑票重建门户会话
+                        onSuccess = { loadBalance() },
+                        onFailure = {
+                            Toast.makeText(this@MainActivity, R.string.balance_session_expired, Toast.LENGTH_LONG)
+                                .show()
+                            tvBalance.text = getString(R.string.balance_unknown)
+                        },
+                    )
+                    if (!started) {
+                        // 已有一发在跑:它的成功回调是二维码那边的,不一定重查余额。不能停在
+                        // "加载中"等一个不会来的回调 —— 静默重登结束后用户点一下刷新即可
+                        Log.i(TAG, "已有静默重登在跑,本次余额不再等待")
+                        tvBalance.text = getString(R.string.balance_unknown)
+                    }
                 }
 
                 BalanceResult.Failed -> {

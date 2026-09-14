@@ -10,6 +10,7 @@ zxing = "3.5.3"
 security-crypto = "1.1.0-alpha06"
 coroutines = "1.8.0"
 material = "1.11.0"
+jsoup = "1.17.2"
 
 [libraries]
 core-ktx = { module = "androidx.core:core-ktx", version.ref = "core-ktx" }
@@ -21,6 +22,7 @@ zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 security-crypto = { module = "androidx.security:security-crypto", version.ref = "security-crypto" }
 coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 material = { module = "com.google.android.material:material", version.ref = "material" }
+jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

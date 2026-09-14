@@ -33,6 +33,8 @@ class WebViewCookieJar : CookieJar {
         private const val ECODE_ORIGIN = "https://ecode.neu.edu.cn"
         /** SESSION 的 path 是 /ecode/api,只有该路径下的 URL 才读得到它 */
         private const val ECODE_API_URL = "$ECODE_ORIGIN/ecode/api/qr-code"
+        /** CASTGC 挂在 /tpass/ 下 */
+        private const val CAS_TGC_URL = "https://pass.neu.edu.cn/tpass/"
 
         /** 清空全部会话(切换账号/认证彻底失效时用) */
         fun clearAll() {
@@ -82,7 +84,7 @@ class WebViewCookieJar : CookieJar {
          */
         fun hasCastgc(): Boolean {
             return CookieManager.getInstance()
-                .getCookie("https://pass.neu.edu.cn/tpass/")
+                .getCookie(CAS_TGC_URL)
                 ?.split(";")
                 ?.any { it.trim().startsWith("CASTGC=", ignoreCase = true) } == true
         }

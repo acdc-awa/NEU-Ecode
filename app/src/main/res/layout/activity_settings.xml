@@ -30,7 +30,9 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <!-- 卡片 1: 账号与会话管理 -->
+            <!-- 卡片 1: 账号(登录状态 + 自动续期状态)
+                 自动续期在实现上就是"登录时勾选了保存账号密码",所以两者共用一张卡:
+                 状态与开关放在同一个概念里,不必去别处找第二个录入密码的地方 -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -44,18 +46,16 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
+                    android:orientation="vertical"
                     android:padding="16dp">
 
                     <LinearLayout
-                        android:layout_width="0dp"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
 
                         <TextView
-                            android:id="@+id/tvAccountTitle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/settings_account_section"
@@ -63,23 +63,43 @@
                             android:textSize="15sp"
                             android:textStyle="bold" />
 
-                        <TextView
-                            android:id="@+id/tvAccountStatus"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:text="@string/account_logged_in"
-                            android:textColor="@color/status_pill_text"
-                            android:textSize="12sp" />
+                        <ImageButton
+                            android:id="@+id/btnHelpAccount"
+                            android:layout_width="28dp"
+                            android:layout_height="28dp"
+                            android:layout_marginStart="4dp"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:contentDescription="@string/help_icon_desc"
+                            android:padding="4dp"
+                            android:src="@drawable/ic_help_outline"
+                            app:tint="?attr/colorOnSurfaceVariant" />
                     </LinearLayout>
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnSwitchAccount"
-                        style="@style/Widget.Material3.Button.TonalButton"
-                        android:layout_width="wrap_content"
+                    <!-- 例:已登录 · 自动续期已开启（20240392） · 上次自动登录：需要短信验证码 -->
+                    <TextView
+                        android:id="@+id/tvAccountStatus"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/settings_switch_account"
-                        android:textSize="13sp" />
+                        android:layout_marginTop="4dp"
+                        android:text="@string/account_not_logged_in"
+                        android:textColor="@color/status_pill_text"
+                        android:textSize="12sp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:gravity="end"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSwitchAccount"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/settings_switch_account"
+                            android:textSize="13sp" />
+                    </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -301,62 +321,8 @@
                     android:orientation="vertical"
                     android:padding="16dp">
 
-                    <!-- 下载源选择与测速行 -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/update_source_label"
-                            android:textColor="?attr/colorOnSurface"
-                            android:textSize="14sp"
-                            android:textStyle="bold" />
-
-                        <ImageButton
-                            android:id="@+id/btnHelpUpdateSource"
-                            android:layout_width="28dp"
-                            android:layout_height="28dp"
-                            android:layout_marginStart="4dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:contentDescription="@string/help_icon_desc"
-                            android:padding="4dp"
-                            android:src="@drawable/ic_help_outline"
-                            app:tint="?attr/colorOnSurfaceVariant" />
-
-                        <View
-                            android:layout_width="0dp"
-                            android:layout_height="0dp"
-                            android:layout_weight="1" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnSpeedTest"
-                            style="@style/Widget.Material3.Button.TextButton"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/update_speed_test"
-                            android:textSize="12sp" />
-                    </LinearLayout>
-
-                    <com.google.android.material.textfield.TextInputLayout
-                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:layout_marginBottom="12dp">
-
-                        <com.google.android.material.textfield.MaterialAutoCompleteTextView
-                            android:id="@+id/ddlUpdateSource"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:inputType="none"
-                            android:textSize="13sp" />
-                    </com.google.android.material.textfield.TextInputLayout>
-
-                    <!-- 检查更新按钮 -->
+                    <!-- 检查更新按钮:下载源已不再让用户选 —— GitHub 直连优先,
+                         5 秒内无响应才自动转镜像测速(见 UpdateChecker) -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnCheckUpdate"
                         style="@style/Widget.Material3.Button.TonalButton"
@@ -416,7 +382,6 @@
 
             <!-- 极简沉底版权信息 -->
             <TextView
-                android:id="@+id/tvCredit"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="16dp"

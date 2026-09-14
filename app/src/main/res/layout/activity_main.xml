@@ -188,7 +188,6 @@
         app:strokeWidth="1dp">
 
         <LinearLayout
-            android:id="@+id/layoutBalance"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
@@ -205,7 +204,6 @@
                 app:tint="?attr/colorPrimary" />
 
             <TextView
-                android:id="@+id/tvBalanceLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="4dp"

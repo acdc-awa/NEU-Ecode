@@ -83,4 +83,6 @@ dependencies {
     implementation(libs.security.crypto)
     implementation(libs.coroutines.android)
     implementation(libs.material)
+    // 原生 CAS 客户端解析登录页与二验页(选择器来自 demo/fingerprint-lab 对真机的实测)
+    implementation(libs.jsoup)
 }

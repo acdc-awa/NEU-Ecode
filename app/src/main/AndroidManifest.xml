@@ -30,6 +30,13 @@
             android:exported="false"
             android:screenOrientation="portrait" />
 
+        <!-- 逃生口:原生表单的备用登录页(真 WebView),只在原生解析失灵/验证方式不支持时进入 -->
+        <activity
+            android:name=".WebLoginActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
         <activity
             android:name=".SettingsActivity"
             android:exported="false"

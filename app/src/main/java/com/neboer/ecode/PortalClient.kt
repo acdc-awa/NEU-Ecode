@@ -24,7 +24,7 @@ import java.util.concurrent.locks.ReentrantLock
  *
  * 会话:走门户自己的 SSO 入口 cas_login/1(由它拼 service 去 CAS,CASTGC 靠共享
  * CookieJar 过站),兑票那一跳下发 CK_LC/CK_VL。直接对 tpass 传 service=根路径无效
- * ——根路径不消费 ticket(2026-09-09 webview-demo 实测修正,commit 77695a9)。
+ * ——根路径不消费 ticket(2026-09-09 webview-demo 实测修正,commit 0c6df01)。
  *
  * 鉴权模型(2026-09-10 控制变量实测,握手细节见 .har/ 与 AGENTS.md):
  * - 余额 data 接口只认 CK_LC + CK_VL,两个缺一不可;SESS_ID 完全不参与校验
